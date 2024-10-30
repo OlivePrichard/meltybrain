@@ -1,15 +1,15 @@
 #![no_std]
 #![no_main]
 
-use bleps::{
-    ad_structure::{
-        create_advertising_data, AdStructure, BR_EDR_NOT_SUPPORTED, LE_GENERAL_DISCOVERABLE,
-    },
-    async_attribute_server::AttributeServer,
-    asynch::Ble,
-    attribute_server::NotificationData,
-    gatt,
-};
+// use bleps::{
+//     ad_structure::{
+//         create_advertising_data, AdStructure, BR_EDR_NOT_SUPPORTED, LE_GENERAL_DISCOVERABLE,
+//     },
+//     async_attribute_server::AttributeServer,
+//     asynch::Ble,
+//     attribute_server::NotificationData,
+//     gatt,
+// };
 use core::cell::RefCell;
 use core::num::Wrapping;
 use embassy_executor::Spawner;
@@ -264,25 +264,27 @@ async fn serial_example(spawner: Spawner) {
     spawner.spawn(writer(tx, &signal)).ok();
 }
 
-async fn bluetooth(spawner: Spawner) {
+async fn testing(spawner: Spawner) {
     // esp_println::logger::init_logger_from_env();
-    // let peripherals = esp_hal::init({
-    //     let mut config = esp_hal::Config::default();
-    //     config.cpu_clock = CpuClock::max();
-    //     config
-    // });
+    let peripherals = esp_hal::init({
+        let mut config = esp_hal::Config::default();
+        config.cpu_clock = CpuClock::max();
+        config
+    });
 
     // esp_alloc::heap_allocator!(72 * 1024);
 
-    // let timg0 = TimerGroup::new(peripherals.TIMG0);
+    let peripherals = esp_hal::init(esp_hal::Config::default());
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    esp_hal_embassy::init(timg0.timer0);
 
-    // let init = init(
-    //     EspWifiInitFor::Ble,
-    //     timg0.timer0,
-    //     Rng::new(peripherals.RNG),
-    //     peripherals.RADIO_CLK,
-    // )
-    // .unwrap();
+    let init = init(
+        EspWifiInitFor::Ble,
+        timg0.timer0,
+        Rng::new(peripherals.RNG),
+        peripherals.RADIO_CLK,
+    )
+    .unwrap();
 
     // let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
     // let button = Input::new(io.pins.gpio9, Pull::Down);
@@ -403,5 +405,5 @@ async fn bluetooth(spawner: Spawner) {
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
-    serial_example(spawner).await;
+    testing(spawner).await;
 }
