@@ -50,7 +50,7 @@ fn main() -> ! {
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
-    let init = init(
+    let init: esp_wifi::EspWifiInitialization = init(
         EspWifiInitFor::Wifi,
         timg0.timer0,
         Rng::new(peripherals.RNG),
