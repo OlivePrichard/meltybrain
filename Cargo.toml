@@ -21,12 +21,13 @@ embassy-sync = "0.6.0"
 static_cell = "2.1.0"
 embedded-io-async = "0.6.1"
 embassy-futures = "0.1.1"
-embassy-net = {version = "0.4.0", features = ["udp", "proto-ipv4", "medium-ip"]}
-embassy-time = "0.3.2"
+embassy-net = {version = "0.4.0", features = ["tcp", "proto-ipv4", "medium-ip", "dhcpv4"]}
+embassy-time = {version = "0.3.2", features = ["generic-queue-8"]}
 esp-wifi = { version = "0.10.1", features = ["esp32c3", "wifi-default", "wifi", "utils", "phy-enable-usb", "embassy-net", "esp-alloc"] }
 embedded-io = "0.6.1"
 esp-alloc = "0.5.0"
 smoltcp = { version = "0.11.0", default-features = false }
+cfg-if = "1.0.0"
 
 [profile.dev]
 # Rust debug is too slow.
