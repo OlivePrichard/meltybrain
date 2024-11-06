@@ -28,26 +28,33 @@ async fn writer(
     mut tx: UartTx<'static, UART0, Async>,
     _signal: &'static Signal<NoopRawMutex, usize>,
 ) {
-    let frequency = 1000;
-    let low_byte = (frequency & 0xFF) as u8;
-    let high_byte = (frequency >> 8 & 0xFF) as u8;
-    let mut packet = [0x5A, 0x06, 0x03, low_byte, high_byte, 0x00];
+    // let frequency = 1000;
+    // let low_byte = (frequency & 0xFF) as u8;
+    // let high_byte = (frequency >> 8 & 0xFF) as u8;
+    // let mut packet = [0x5A, 0x06, 0x03, low_byte, high_byte, 0x00];
+
     // let baud_rate = 230_400u32;
     // let bytes = baud_rate.to_le_bytes();
     // let mut packet = [0x5A, 0x08, 0x06, bytes[0], bytes[1], bytes[2], bytes[3], 0x00];
-    let mut check = Wrapping(0u8);
-    for byte in packet {
-        check += byte;
-    }
-    packet[packet.len() - 1] = check.0;
-    embedded_io_async::Write::write(&mut tx, &packet)
-        .await
-        .unwrap();
-    embedded_io_async::Write::flush(&mut tx).await.unwrap();
-    embedded_io_async::Write::write(&mut tx, &[0x5A, 0x04, 0x11, 0x6F])
-        .await
-        .unwrap();
-    embedded_io_async::Write::flush(&mut tx).await.unwrap();
+
+    // let mut packet = [0x5A, 0x05, 0x05, 0x06, 0x6A];
+
+    // let mut check = Wrapping(0u8);
+    // for byte in packet {
+    //     check += byte;
+    // }
+    // packet[packet.len() - 1] = check.0;
+
+    // embedded_io_async::Write::write(&mut tx, &packet)
+    //     .await
+    //     .unwrap();
+    // embedded_io_async::Write::flush(&mut tx).await.unwrap();
+
+    // embedded_io_async::Write::write(&mut tx, &[0x5A, 0x04, 0x11, 0x6F])
+    //     .await
+    //     .unwrap();
+    // embedded_io_async::Write::flush(&mut tx).await.unwrap();
+
     loop {
         yield_now().await;
     }
