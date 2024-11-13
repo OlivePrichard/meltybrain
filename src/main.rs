@@ -22,11 +22,12 @@ async fn main(_spawner: Spawner) {
 
     let mut i2c0 = I2c::new_async(peripherals.I2C0, io.pins.gpio6, io.pins.gpio7, 400.kHz());
 
-    let mut buffer = [0u8; 1024];
+    let mut buffer = [0u8; 6];
+    i2c0.write(0x53, &[0x2d, 0x08]).await.unwrap();
     loop {
-        buffer = [0u8; 1024];
-        match i2c0.read(0x53, &mut buffer).await {
-            Ok(_) => println!("{:02X?}", &buffer[..100]),
+        buffer = [0u8; 6];
+        match i2c0.write_read(0x53, &[0x36], &mut buffer).await {
+            Ok(_) => println!("{:02X?}", &buffer[..6]),
             Err(e) => println!("{:?}", e),
         }
     }
