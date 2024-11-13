@@ -120,10 +120,11 @@ async fn main(spawner: Spawner) -> ! {
     udp_socket.bind(55440).unwrap();
 
     // let endpoint = IpEndpoint::new(Ipv4Address::new(192, 168, 2, 5).into(), 55441);
-
+    let mut counter = 0;
     loop {
         let (n, addr) = udp_socket.recv_from(&mut rx_buffer).await.unwrap();
-        println!("Received {} bytes from {}", n, addr);
+        counter = counter + 1;
+        println!("{} Received {} bytes from {}",counter, n, addr);
         let r = udp_socket.send_to(&rx_buffer[..n], addr).await;
         if let Err(e) = r {
             println!("send error: {:?}", e);
