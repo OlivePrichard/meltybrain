@@ -244,6 +244,6 @@ async fn main(_spawner: Spawner) {
     let mut i2c0 = I2c::new_async(peripherals.I2C0, io.pins.gpio4, io.pins.gpio5, 400.kHz());
 
     loop {
-        i2c0.write_read(0, &[0], &mut [0]).await.unwrap();
+        i2c0.read(0, &mut [0]).await.unwrap();
     }
 }
