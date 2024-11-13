@@ -8,14 +8,10 @@ use embassy_futures::yield_now;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use esp_backtrace as _;
 use esp_hal::{
-    gpio::Io,
-    peripherals::UART0,
-    timer::timg::TimerGroup,
-    uart::{
+    gpio::Io, i2c::{self, I2c}, peripherals::UART0, prelude::*, timer::timg::{Timer, TimerGroup}, uart::{
         config::{AtCmdConfig, Config},
         Uart, UartRx, UartTx,
-    },
-    Async,
+    }, Async
 };
 use esp_println::println;
 use static_cell::StaticCell;
@@ -237,8 +233,7 @@ async fn reader(
 }
 
 #[esp_hal_embassy::main]
-async fn main(spawner: Spawner) {
-    esp_println::println!("Init!");
+async fn main(_spawner: Spawner) {
     let peripherals = esp_hal::init(esp_hal::Config::default());
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -246,18 +241,9 @@ async fn main(spawner: Spawner) {
 
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
 
-    let (tx_pin, rx_pin) = (io.pins.gpio21, io.pins.gpio20);
+    let mut i2c0 = I2c::new_async(peripherals.I2C0, io.pins.gpio4, io.pins.gpio5, 400.kHz());
 
-    let config = Config::default().rx_fifo_full_threshold(READ_BUF_SIZE as u16).baudrate(230_400);
-
-    let mut uart0 = Uart::new_async_with_config(peripherals.UART0, config, rx_pin, tx_pin).unwrap();
-    uart0.set_at_cmd(AtCmdConfig::new(None, None, None, AT_CMD, None));
-
-    let (rx, tx) = uart0.split();
-
-    static SIGNAL: StaticCell<Signal<NoopRawMutex, usize>> = StaticCell::new();
-    let signal = &*SIGNAL.init(Signal::new());
-
-    spawner.spawn(reader(rx, &signal)).ok();
-    spawner.spawn(writer(tx, &signal)).ok();
+    loop {
+        i2c0.write_read(0, &[0], &mut [0]).await.unwrap();
+    }
 }
