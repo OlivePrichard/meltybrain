@@ -15,11 +15,13 @@
 #![no_std]
 #![no_main]
 
+mod log_messages;
+
 use embassy_executor::Spawner;
 use embassy_net::{
     tcp::TcpSocket, udp::{PacketMetadata, UdpSocket}, IpEndpoint, IpListenEndpoint, Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4
 };
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{prelude::*, rng::{self, Rng}, timer::timg::TimerGroup};
@@ -113,8 +115,6 @@ async fn main(spawner: Spawner) -> ! {
     let mut udp_tx_buffer = [0; 2048];
     let mut udp_rx_metadata = [PacketMetadata::EMPTY; 16];
     let mut udp_tx_metadata = [PacketMetadata::EMPTY; 16];
-
-    println!("PacketMetadata size: {}", core::mem::size_of::<PacketMetadata>());
 
     let mut udp_socket = UdpSocket::new(&stack, &mut udp_rx_metadata, &mut udp_rx_buffer, &mut udp_tx_metadata, &mut udp_tx_buffer);
     udp_socket.bind(55440).unwrap();

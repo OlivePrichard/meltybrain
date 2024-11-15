@@ -13,7 +13,7 @@ esp-backtrace = { version = "0.14.2", features = [
     "println",
 ] }
 esp-hal = { version = "0.21.1", features = [ "esp32c3" ] }
-esp-println = { version = "0.12.0", features = ["esp32c3", "log"] }
+esp-println = { version = "0.12.0", features = [ "esp32c3", "log" ] }
 log = { version = "0.4.22" }
 esp-hal-embassy = { version = "0.4.0", features = [ "esp32c3" ] }
 embassy-executor = { version = "0.6.1", features = [ "task-arena-size-16384" ] }
@@ -21,13 +21,15 @@ embassy-sync = "0.6.0"
 static_cell = "2.1.0"
 embedded-io-async = "0.6.1"
 embassy-futures = "0.1.1"
-embassy-net = {version = "0.4.0", features = ["tcp", "udp", "proto-ipv4", "medium-ip", "dhcpv4"]}
-embassy-time = {version = "0.3.2", features = ["generic-queue-8"]}
-esp-wifi = { version = "0.10.1", features = ["esp32c3", "wifi-default", "wifi", "utils", "phy-enable-usb", "embassy-net", "esp-alloc"] }
+embassy-net = { version = "0.4.0", features = [ "tcp", "udp", "proto-ipv4", "medium-ip", "dhcpv4" ] }
+embassy-time = { version = "0.3.2", features = [ "generic-queue-8" ] }
+esp-wifi = { version = "0.10.1", features = [ "esp32c3", "wifi-default", "wifi", "utils", "phy-enable-usb", "embassy-net", "esp-alloc" ] }
 embedded-io = "0.6.1"
 esp-alloc = "0.5.0"
 smoltcp = { version = "0.11.0", default-features = false }
 cfg-if = "1.0.0"
+postcard = "1.0.10"
+serde = { version = "1.0.215", default-features = false }
 
 [profile.dev]
 # Rust debug is too slow.
