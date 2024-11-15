@@ -15,8 +15,6 @@
 #![no_std]
 #![no_main]
 
-mod log_messages;
-
 use embassy_executor::Spawner;
 use embassy_net::{
     tcp::TcpSocket, udp::{PacketMetadata, UdpSocket}, IpEndpoint, IpListenEndpoint, Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4
