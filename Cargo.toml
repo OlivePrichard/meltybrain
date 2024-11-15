@@ -21,6 +21,8 @@ embassy-sync = "0.6.0"
 static_cell = "2.1.0"
 embedded-io-async = "0.6.1"
 embassy-futures = "0.1.1"
+postcard = "1.0.10"
+serde = { version = "1.0.215", default-features = false }
 
 [profile.dev]
 # Rust debug is too slow.

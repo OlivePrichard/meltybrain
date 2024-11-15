@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+mod shared_code;
+
 use core::num::Wrapping;
 
 use embassy_executor::Spawner;
