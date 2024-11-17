@@ -30,6 +30,7 @@ smoltcp = { version = "0.11.0", default-features = false }
 cfg-if = "1.0.0"
 postcard = "1.0.10"
 serde = { version = "1.0.215", default-features = false }
+itertools = { version = "0.13.0", default-features = false }
 
 
 [profile.dev]

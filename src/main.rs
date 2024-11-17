@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+mod logging;
 mod shared_code;
 mod watchdog;
 
@@ -12,7 +13,7 @@ use embassy_net::{
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
-use esp_hal::{gpio::Io, interrupt, prelude::*, rng::Rng, timer::timg::TimerGroup};
+use esp_hal::{prelude::*, rng::Rng, timer::timg::TimerGroup, clock::CpuClock};
 use esp_println::println;
 use esp_wifi::{
     init,
@@ -34,7 +35,7 @@ macro_rules! mk_static {
 }
 
 #[embassy_executor::task]
-async fn connection(mut controller: WifiController<'static>) {
+async fn connection(mut controller: WifiController<'static>) -> ! {
     println!("start connection task");
     println!("Device capabilities: {:?}", controller.get_capabilities());
     loop {

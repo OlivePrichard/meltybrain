@@ -10,6 +10,7 @@ pub enum Log {
     WifiStarted,
     WifiError,
     WifiReceivedPacket { address: [u8; 4], port: u16 },
+    LogMessageBufferFull,
 }
 
 impl Log {
@@ -23,6 +24,7 @@ impl Log {
                 "Wifi received packet from {}.{}.{}.{}:{}",
                 address[0], address[1], address[2], address[3], port
             ),
+            Log::LogMessageBufferFull => "Log message buffer full".to_string(),
         }
     }
 
@@ -53,7 +55,6 @@ impl<'a> LogIterator<'a> {
     }
 }
 
-#[cfg(not(target_os = "none"))]
 impl<'a> Iterator for LogIterator<'a> {
     type Item = LogWithTime;
 
@@ -71,6 +72,7 @@ impl<'a> Iterator for LogIterator<'a> {
             if let Some(log_message) = Log::from_bytes(data) {
                 return Some(log_message);
             } else {
+                #[cfg(not(target_os = "none"))]
                 println!("Got nonsense log message: {:02X?}", data);
             }
         }
