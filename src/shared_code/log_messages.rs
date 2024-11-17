@@ -4,19 +4,22 @@ use core::time::Duration;
 use postcard::{from_bytes_cobs, to_slice_cobs};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Log {
+    Initializing,
     Initialized,
     WifiStarted,
     WifiError,
     WifiReceivedPacket { address: [u8; 4], port: u16 },
     LogMessageBufferFull,
+    Testing(u8, f32),
 }
 
 impl Log {
     #[cfg(not(target_os = "none"))]
     pub fn to_string(&self) -> String {
         match self {
+            Log::Initialized => "Initializing".to_string(),
             Log::Initialized => "Initialized".to_string(),
             Log::WifiStarted => "Wifi started".to_string(),
             Log::WifiError => "Wifi error".to_string(),
@@ -38,7 +41,7 @@ impl Log {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LogWithTime {
     pub time: Duration,
     pub log: Log,

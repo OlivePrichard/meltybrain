@@ -6,6 +6,19 @@ use embassy_time::Instant;
 use static_cell::StaticCell;
 use postcard::to_slice_cobs;
 
+macro_rules! log {
+    ($message:ident) => {
+        crate::logging::log_message(crate::shared_code::log_messages::Log::$message).await;
+    };
+    ($message:ident { $( $field:ident: $val:expr ),* } ) => {
+        crate::logging::log_message(crate::shared_code::log_messages::Log::$message { $( $field: $val ),* }).await;
+    };
+    ($message:ident ( $( $val:expr ),* ) ) => {
+        crate::logging::log_message(crate::shared_code::log_messages::Log::$message ( $( $val ),* )).await;
+    };
+}
+pub(crate) use log;
+
 fn get_telemetry() -> &'static Mutex<NoopRawMutex, Telemetry> {
     const PAST_LOGS_BUFFER_LENGTH: usize = 1024 * 8;
     const CURRENT_LOGS_BUFFER_LENGTH: usize = 1024 * 2;
@@ -32,7 +45,7 @@ fn get_telemetry() -> &'static Mutex<NoopRawMutex, Telemetry> {
     })
 }
 
-pub async fn log(message: Log) {
+pub async fn log_message(message: Log) {
     let mut telemetry = get_telemetry().lock().await;
     let time = Instant::now() - telemetry.creation_time;
     telemetry.log(LogWithTime {
@@ -41,7 +54,17 @@ pub async fn log(message: Log) {
     });
 }
 
-pub struct Telemetry {
+pub async fn get_log(id: u32, buffer: &mut [u8]) -> Result<usize, bool> {
+    let telemetry = get_telemetry().lock().await;
+    telemetry.get_log(id, buffer)
+}
+
+pub async fn get_current_log(buffer: &mut [u8]) -> Result<usize, ()> {
+    let mut telemetry = get_telemetry().lock().await;
+    telemetry.get_current_log(buffer)
+}
+
+struct Telemetry {
     past_logs: CobsQueue<'static, (u8, u8)>,
     current_logs: CobsQueue<'static, (u8,)>,
     encoding_buffer: &'static mut [u8],
@@ -66,14 +89,14 @@ impl Telemetry {
         }
     }
 
-    pub fn log(&mut self, message: LogWithTime) {
+    fn log(&mut self, message: LogWithTime) {
         let Ok(encoded) = to_slice_cobs(&message, &mut self.encoding_buffer) else { return; };
         if self.current_logs.push(encoded) == Ok(true) {
             self.current_logs_full = true;
         }
     }
 
-    pub fn get_log(&self, id: u32, buffer: &mut [u8]) -> Result<usize, bool> {
+    fn get_log(&self, id: u32, buffer: &mut [u8]) -> Result<usize, bool> {
         if id >= self.id {
             return Err(false);
         }
@@ -85,7 +108,7 @@ impl Telemetry {
         self.past_logs.get(index as usize, buffer).map_err(|_| false)
     }
 
-    pub fn get_current_log(&mut self, buffer: &mut [u8]) -> Result<usize, ()> {
+    fn get_current_log(&mut self, buffer: &mut [u8]) -> Result<usize, ()> {
         if self.current_logs_full {
             let time = Instant::now() - self.creation_time;
             self.log(LogWithTime {

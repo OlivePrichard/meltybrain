@@ -2,8 +2,12 @@
 #![no_main]
 
 mod logging;
+mod networking;
 mod shared_code;
 mod watchdog;
+
+use logging::log;
+use shared_code::log_messages::Log;
 
 use embassy_executor::Spawner;
 use embassy_net::{
@@ -13,7 +17,7 @@ use embassy_net::{
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
-use esp_hal::{prelude::*, rng::Rng, timer::timg::TimerGroup, clock::CpuClock};
+use esp_hal::{rng::Rng, timer::timg::TimerGroup, clock::CpuClock};
 use esp_println::println;
 use esp_wifi::{
     init,
@@ -61,7 +65,7 @@ async fn connection(mut controller: WifiController<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<WifiDevice<'static, WifiApDevice>>) {
+async fn net_task(stack: &'static Stack<WifiDevice<'static, WifiApDevice>>) -> ! {
     stack.run().await
 }
 
@@ -120,7 +124,7 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(net_task(&stack)).ok();
 
     let mut rx_buffer = [0; 1536];
-    let mut tx_buffer = [0; 1536];
+    // let mut tx_buffer = [0; 1536];
 
     loop {
         if stack.is_link_up() {
@@ -156,6 +160,4 @@ async fn main(spawner: Spawner) -> ! {
             println!("send error: {:?}", e);
         }
     }
-
-    loop {}
 }
