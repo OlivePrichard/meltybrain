@@ -5,10 +5,9 @@
 use embassy_executor::Spawner;
 use esp_backtrace as _;
 use esp_hal::{
-    gpio::Io, i2c::I2c, ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed}, prelude::*, riscv::asm::delay, timer::timg::TimerGroup
+    gpio::Io, ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed}, prelude::*
 
 };
-use esp_println::println;
 
 
 
@@ -28,9 +27,9 @@ async fn main(_spawner: Spawner) {
 
     lstimer0
         .configure(timer::config::Config {
-            duty: timer::config::Duty::Duty5Bit,
+            duty: timer::config::Duty::Duty8Bit,
             clock_source: timer::LSClockSource::APBClk,
-            frequency: 8.kHz(),
+            frequency: 4.kHz()
         })
         .unwrap();
 
@@ -54,36 +53,39 @@ async fn main(_spawner: Spawner) {
     // channel0.start_duty_fade(0, 100, 2000).expect_err(
     //     "Fading from 0% to 100%, at 24kHz and 5-bit resolution, over 2 seconds, should fail",
     // );
-    leftChannel.start_duty_fade(0, 50, 500).unwrap();
-    rightChannel.start_duty_fade(0, 50, 500).unwrap();
+    leftChannel.start_duty_fade(0, 100, 1000).unwrap();
+    rightChannel.start_duty_fade(0, 100, 1000).unwrap();
     while leftChannel.is_duty_fade_running() || rightChannel.is_duty_fade_running() {
     }
-    leftChannel.start_duty_fade(50, 0, 500).unwrap();
-    rightChannel.start_duty_fade(50, 0, 500).unwrap();
+    leftChannel.start_duty_fade(100, 0, 1000).unwrap();
+    rightChannel.start_duty_fade(100, 0, 1000).unwrap();
     while leftChannel.is_duty_fade_running() || rightChannel.is_duty_fade_running() {
     }
-    leftChannel.start_duty_fade(0, 50, 500).unwrap();
-    rightChannel.start_duty_fade(0, 50, 500).unwrap();
-    while leftChannel.is_duty_fade_running() || rightChannel.is_duty_fade_running() {
-    }
-    leftChannel.start_duty_fade(50, 0, 1500).unwrap();
-    rightChannel.start_duty_fade(50, 0, 1500).unwrap();
-    while leftChannel.is_duty_fade_running() || rightChannel.is_duty_fade_running() {
-    }
-    leftChannel.start_duty_fade(0, 70, 1000).unwrap();
-    rightChannel.start_duty_fade(0, 70, 1000).unwrap();
-    while leftChannel.is_duty_fade_running() || rightChannel.is_duty_fade_running() {
-    }
+    // leftChannel.start_duty_fade(0, 50, 500).unwrap();
+    // rightChannel.start_duty_fade(0, 50, 500).unwrap();
+    // while leftChannel.is_duty_fade_running() || rightChannel.is_duty_fade_running() {
+    // }
+    // leftChannel.start_duty_fade(50, 0, 1200).unwrap();
+    // rightChannel.start_duty_fade(50, 0, 1200).unwrap();
+    // while leftChannel.is_duty_fade_running() || rightChannel.is_duty_fade_running() {
+    // }
+    // leftChannel.start_duty_fade(0, 70, 1000).unwrap();
+    // rightChannel.start_duty_fade(0, 70, 1000).unwrap();
+    // while leftChannel.is_duty_fade_running() || rightChannel.is_duty_fade_running() {
+    // }
 
 
 
     loop {
-        leftChannel.start_duty_fade(40, 70, 1000).unwrap();
-        rightChannel.start_duty_fade(40, 70, 1000).unwrap();
-        while leftChannel.is_duty_fade_running() || rightChannel.is_duty_fade_running() {}
-        leftChannel.start_duty_fade(70, 40, 1000).unwrap();
-        rightChannel.start_duty_fade(70, 40, 1000).unwrap(); 
-        while leftChannel.is_duty_fade_running() || rightChannel.is_duty_fade_running() {}
+        leftChannel.start_duty_fade(60, 100, 1000).unwrap();
+        rightChannel.start_duty_fade(60, 100, 1000).unwrap();
+        while leftChannel.is_duty_fade_running() || rightChannel.is_duty_fade_running() {
+        }
+        leftChannel.start_duty_fade(100, 51, 1000).unwrap();
+        rightChannel.start_duty_fade(100, 51, 1000).unwrap(); 
+        while leftChannel.is_duty_fade_running() || rightChannel.is_duty_fade_running() {
+        }
+        
     }
  
 
