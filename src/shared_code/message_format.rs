@@ -112,3 +112,37 @@ impl<'a> Message<'a> {
         )
     }
 }
+
+pub struct MessageIter<'a> {
+    buffer: &'a [u8],
+    index: usize,
+}
+
+impl<'a> MessageIter<'a> {
+    pub fn new(buffer: &'a [u8]) -> Self {
+        Self { buffer, index: 0 }
+    }
+}
+
+impl<'a> Iterator for MessageIter<'a> {
+    type Item = Message<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(loop {
+            if self.buffer.len() == self.index {
+                return None;
+            }
+
+            let (len, data) = Message::from_le_bytes(&self.buffer[self.index..]);
+            self.index += len;
+            if let Some(message) = data {
+                break message;
+            }
+            #[cfg(not(target_os = "none"))]
+            println!(
+                "Got {len} bytes of nonsense: {:02X?}",
+                &self.buffer[self.index - len..self.index]
+            );
+        })
+    }
+}

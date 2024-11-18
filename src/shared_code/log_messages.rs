@@ -12,14 +12,17 @@ pub enum Log {
     WifiError,
     WifiReceivedPacket { address: [u8; 4], port: u16 },
     LogMessageBufferFull,
-    Testing(u8, f32),
+    ReceivedPacketTooLarge,
+    ReceivedLogData(u32),
+    ReceivedForgotLogData(u32),
+    WatchdogTimeout,
 }
 
 impl Log {
     #[cfg(not(target_os = "none"))]
     pub fn to_string(&self) -> String {
         match self {
-            Log::Initialized => "Initializing".to_string(),
+            Log::Initializing => "Initializing".to_string(),
             Log::Initialized => "Initialized".to_string(),
             Log::WifiStarted => "Wifi started".to_string(),
             Log::WifiError => "Wifi error".to_string(),
@@ -28,6 +31,10 @@ impl Log {
                 address[0], address[1], address[2], address[3], port
             ),
             Log::LogMessageBufferFull => "Log message buffer full".to_string(),
+            Log::ReceivedPacketTooLarge => "Received packet too large".to_string(),
+            Log::ReceivedLogData(id) => format!("Received log data {}", id),
+            Log::ReceivedForgotLogData(id) => format!("Received forgot log data {}", id),
+            Log::WatchdogTimeout => "Watchdog timeout".to_string(),
         }
     }
 

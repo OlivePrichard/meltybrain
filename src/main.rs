@@ -1,23 +1,22 @@
 #![no_std]
 #![no_main]
 
+mod control_logic;
 mod logging;
 mod networking;
 mod shared_code;
 mod watchdog;
 
-use logging::log;
-use shared_code::log_messages::Log;
-
+use control_logic::control_logic;
 use embassy_executor::Spawner;
 use embassy_net::{
-    udp::{PacketMetadata, UdpSocket},
     Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4,
 };
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
-use esp_hal::{rng::Rng, timer::timg::TimerGroup, clock::CpuClock};
+use esp_hal::{clock::CpuClock, rng::Rng, timer::timg::TimerGroup};
 use esp_println::println;
 use esp_wifi::{
     init,
@@ -27,6 +26,11 @@ use esp_wifi::{
     },
     EspWifiInitFor,
 };
+
+use logging::log;
+use networking::handle_networking;
+use shared_code::controller::ControllerState;
+use watchdog::Watchdog;
 
 // When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
 macro_rules! mk_static {
@@ -67,6 +71,32 @@ async fn connection(mut controller: WifiController<'static>) -> ! {
 #[embassy_executor::task]
 async fn net_task(stack: &'static Stack<WifiDevice<'static, WifiApDevice>>) -> ! {
     stack.run().await
+}
+
+#[embassy_executor::task]
+async fn watchdog_task(watchdog: &'static Watchdog, armed: &'static Mutex<CriticalSectionRawMutex, bool>) -> ! {
+    let delay = Duration::from_hz(50);
+    watchdog.wait_for_start(delay).await;
+    {
+        let mut lock = armed.lock().await;
+        *lock = true;
+    }
+
+    loop {
+        watchdog.run().await;
+        log!(WatchdogTimeout);
+        {
+            let mut lock = armed.lock().await;
+            *lock = false;
+        }
+        while !watchdog.is_fed().await {
+            Timer::after(delay).await;
+        }
+        {
+            let mut lock = armed.lock().await;
+            *lock = true;
+        }
+    }
 }
 
 #[esp_hal_embassy::main]
@@ -120,44 +150,57 @@ async fn main(spawner: Spawner) -> ! {
         )
     );
 
+    let connection_watchdog = &*mk_static!(
+        Watchdog,
+        Watchdog::new(Duration::from_secs(2))
+    );
+    let controller_data = &*mk_static!(
+        Mutex<CriticalSectionRawMutex, (ControllerState, ControllerState)>,
+        Mutex::new((ControllerState::default(), ControllerState::default()))
+    );
+    let armed = &*mk_static!(
+        Mutex<CriticalSectionRawMutex, bool>,
+        Mutex::new(false)
+    );
+
     spawner.spawn(connection(controller)).ok();
     spawner.spawn(net_task(&stack)).ok();
-
-    let mut rx_buffer = [0; 1536];
-    // let mut tx_buffer = [0; 1536];
+    spawner.spawn(handle_networking(stack, controller_data, connection_watchdog)).ok();
+    spawner.spawn(watchdog_task(connection_watchdog, armed)).ok();
+    spawner.spawn(control_logic(controller_data, armed)).ok();
 
     loop {
-        if stack.is_link_up() {
-            break;
-        }
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after(Duration::from_secs(1)).await;
     }
-    println!("Connect to the AP `esp-wifi` and point your browser to http://192.168.2.1:8080/");
-    println!("Use a static IP in the range 192.168.2.2 .. 192.168.2.255, use gateway 192.168.2.1");
+    // let mut rx_buffer = [0; 1536];
+    // // let mut tx_buffer = [0; 1536];
 
-    let mut udp_rx_buffer = [0; 1024];
-    let mut udp_tx_buffer = [0; 2048];
-    let mut udp_rx_metadata = [PacketMetadata::EMPTY; 16];
-    let mut udp_tx_metadata = [PacketMetadata::EMPTY; 16];
+    // println!("Connect to the AP `esp-wifi` and point your browser to http://192.168.2.1:8080/");
+    // println!("Use a static IP in the range 192.168.2.2 .. 192.168.2.255, use gateway 192.168.2.1");
 
-    let mut udp_socket = UdpSocket::new(
-        &stack,
-        &mut udp_rx_metadata,
-        &mut udp_rx_buffer,
-        &mut udp_tx_metadata,
-        &mut udp_tx_buffer,
-    );
-    udp_socket.bind(55440).unwrap();
+    // let mut udp_rx_buffer = [0; 1024];
+    // let mut udp_tx_buffer = [0; 2048];
+    // let mut udp_rx_metadata = [PacketMetadata::EMPTY; 16];
+    // let mut udp_tx_metadata = [PacketMetadata::EMPTY; 16];
 
-    // let endpoint = IpEndpoint::new(Ipv4Address::new(192, 168, 2, 5).into(), 55441);
-    let mut counter = 0;
-    loop {
-        let (n, addr) = udp_socket.recv_from(&mut rx_buffer).await.unwrap();
-        counter = counter + 1;
-        println!("{} Received {} bytes from {}", counter, n, addr);
-        let r = udp_socket.send_to(&rx_buffer[..n], addr).await;
-        if let Err(e) = r {
-            println!("send error: {:?}", e);
-        }
-    }
+    // let mut udp_socket = UdpSocket::new(
+    //     &stack,
+    //     &mut udp_rx_metadata,
+    //     &mut udp_rx_buffer,
+    //     &mut udp_tx_metadata,
+    //     &mut udp_tx_buffer,
+    // );
+    // udp_socket.bind(55440).unwrap();
+
+    // // let endpoint = IpEndpoint::new(Ipv4Address::new(192, 168, 2, 5).into(), 55441);
+    // let mut counter = 0;
+    // loop {
+    //     let (n, addr) = udp_socket.recv_from(&mut rx_buffer).await.unwrap();
+    //     counter = counter + 1;
+    //     println!("{} Received {} bytes from {}", counter, n, addr);
+    //     let r = udp_socket.send_to(&rx_buffer[..n], addr).await;
+    //     if let Err(e) = r {
+    //         println!("send error: {:?}", e);
+    //     }
+    // }
 }

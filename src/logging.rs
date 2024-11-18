@@ -1,30 +1,30 @@
 use crate::shared_code::log_messages::{Log, LogWithTime};
 use data_structures::CobsQueue;
 
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex, once_lock::OnceLock};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, once_lock::OnceLock};
 use embassy_time::Instant;
 use static_cell::StaticCell;
 use postcard::to_slice_cobs;
 
 macro_rules! log {
     ($message:ident) => {
-        crate::logging::log_message(crate::shared_code::log_messages::Log::$message).await;
+        crate::logging::log_message(crate::shared_code::log_messages::Log::$message).await
     };
     ($message:ident { $( $field:ident: $val:expr ),* } ) => {
-        crate::logging::log_message(crate::shared_code::log_messages::Log::$message { $( $field: $val ),* }).await;
+        crate::logging::log_message(crate::shared_code::log_messages::Log::$message { $( $field: $val ),* }).await
     };
     ($message:ident ( $( $val:expr ),* ) ) => {
-        crate::logging::log_message(crate::shared_code::log_messages::Log::$message ( $( $val ),* )).await;
+        crate::logging::log_message(crate::shared_code::log_messages::Log::$message ( $( $val ),* )).await
     };
 }
 pub(crate) use log;
 
-fn get_telemetry() -> &'static Mutex<NoopRawMutex, Telemetry> {
+fn get_telemetry() -> &'static Mutex<CriticalSectionRawMutex, Telemetry> {
     const PAST_LOGS_BUFFER_LENGTH: usize = 1024 * 8;
     const CURRENT_LOGS_BUFFER_LENGTH: usize = 1024 * 2;
     const ENCODING_BUFFER_LENGTH: usize = size_of::<LogWithTime>() * 2 * 255 / 254 + 2;
 
-    static TELEMETRY_LOCK: OnceLock<Mutex<NoopRawMutex, Telemetry>> = OnceLock::new();
+    static TELEMETRY_LOCK: OnceLock<Mutex<CriticalSectionRawMutex, Telemetry>> = OnceLock::new();
 
     TELEMETRY_LOCK.get_or_init(|| {
         static PAST_LOGS_BUFFER_CELL: StaticCell<[u8; PAST_LOGS_BUFFER_LENGTH]> = StaticCell::new();
@@ -54,6 +54,7 @@ pub async fn log_message(message: Log) {
     });
 }
 
+// returns Err(true) if the id is too old, Err(false) if there was a different issue, and Ok(size) if the log was successfully copied
 pub async fn get_log(id: u32, buffer: &mut [u8]) -> Result<usize, bool> {
     let telemetry = get_telemetry().lock().await;
     telemetry.get_log(id, buffer)
@@ -62,6 +63,11 @@ pub async fn get_log(id: u32, buffer: &mut [u8]) -> Result<usize, bool> {
 pub async fn get_current_log(buffer: &mut [u8]) -> Result<usize, ()> {
     let mut telemetry = get_telemetry().lock().await;
     telemetry.get_current_log(buffer)
+}
+
+pub async fn get_current_log_length() -> usize {
+    let telemetry = get_telemetry().lock().await;
+    telemetry.current_logs.used_space() + 24 // extra space for possible message about buffer full
 }
 
 struct Telemetry {
