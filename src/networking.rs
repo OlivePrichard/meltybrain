@@ -1,7 +1,7 @@
 use crate::{logging::{get_current_log, get_current_log_length, get_log, log}, shared_code::{controller::ControllerState, message_format::{Message, MessageIter}}, watchdog::Watchdog};
 
 use embassy_net::{udp::{PacketMetadata, UdpSocket}, IpEndpoint, Stack};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{with_deadline, Duration, Instant, Timer};
 use esp_wifi::wifi::{WifiApDevice, WifiDevice};
 
@@ -14,7 +14,7 @@ macro_rules! static_buffer {
 }
 
 #[embassy_executor::task]
-pub async fn handle_networking(stack: &'static Stack<WifiDevice<'static, WifiApDevice>>, controllers: &'static Mutex<CriticalSectionRawMutex, (ControllerState, ControllerState)>, watchdog: &'static Watchdog) -> ! {
+pub async fn handle_networking(stack: &'static Stack<WifiDevice<'static, WifiApDevice>>, controllers: &'static Mutex<NoopRawMutex, (ControllerState, ControllerState)>, watchdog: &'static Watchdog) -> ! {
     loop {
         if stack.is_link_up() {
             break;
@@ -106,7 +106,7 @@ async fn send_packet(socket: &mut UdpSocket<'static>, address: IpEndpoint, data_
     _ = socket.send_to(&data_buffer[..index], address).await;
 }
 
-async fn receive_packet(buffer: &[u8], resend_requests: &mut [u32], previous_controller_id: &mut u32, controllers: &Mutex<CriticalSectionRawMutex, (ControllerState, ControllerState)>) -> usize {
+async fn receive_packet(buffer: &[u8], resend_requests: &mut [u32], previous_controller_id: &mut u32, controllers: &Mutex<NoopRawMutex, (ControllerState, ControllerState)>) -> usize {
     let mut size = 0;
     for message in MessageIter::new(buffer) {
         match message {

@@ -12,7 +12,7 @@ use embassy_executor::Spawner;
 use embassy_net::{
     Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4,
 };
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
@@ -74,7 +74,7 @@ async fn net_task(stack: &'static Stack<WifiDevice<'static, WifiApDevice>>) -> !
 }
 
 #[embassy_executor::task]
-async fn watchdog_task(watchdog: &'static Watchdog, armed: &'static Mutex<CriticalSectionRawMutex, bool>) -> ! {
+async fn watchdog_task(watchdog: &'static Watchdog, armed: &'static Mutex<NoopRawMutex, bool>) -> ! {
     let delay = Duration::from_hz(50);
     watchdog.wait_for_start(delay).await;
     {
@@ -155,11 +155,11 @@ async fn main(spawner: Spawner) -> ! {
         Watchdog::new(Duration::from_secs(2))
     );
     let controller_data = &*mk_static!(
-        Mutex<CriticalSectionRawMutex, (ControllerState, ControllerState)>,
+        Mutex<NoopRawMutex, (ControllerState, ControllerState)>,
         Mutex::new((ControllerState::default(), ControllerState::default()))
     );
     let armed = &*mk_static!(
-        Mutex<CriticalSectionRawMutex, bool>,
+        Mutex<NoopRawMutex, bool>,
         Mutex::new(false)
     );
 
