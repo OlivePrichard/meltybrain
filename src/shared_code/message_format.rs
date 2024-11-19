@@ -1,6 +1,3 @@
-#[cfg(target_os = "none")]
-use esp_println::println;
-
 use crate::shared_code::controller::ControllerState;
 
 macro_rules! discriminant_conversion {
@@ -142,6 +139,7 @@ impl<'a> Iterator for MessageIter<'a> {
             if let Some(message) = data {
                 break message;
             }
+            #[cfg(not(target_os = "none"))]
             println!(
                 "Got {len} bytes of nonsense: {:02X?}",
                 &self.buffer[self.index - len..self.index]

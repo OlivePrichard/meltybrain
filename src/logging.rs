@@ -1,30 +1,32 @@
 use crate::shared_code::log_messages::{Log, LogWithTime};
 use data_structures::CobsQueue;
 
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, once_lock::OnceLock};
+use embassy_sync::{
+    blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, once_lock::OnceLock,
+};
 use embassy_time::Instant;
-use esp_println::println;
-use static_cell::StaticCell;
+// use esp_println::println;
 use postcard::to_slice_cobs;
+use static_cell::StaticCell;
 
 macro_rules! log {
     ($message:ident) => {{
-        use esp_println::println;
+        // use esp_println::println;
         let message = crate::shared_code::log_messages::Log::$message;
         crate::logging::log_message(message).await;
-        println!("{:?}", message);
+        // println!("{:?}", message);
     }};
     ($message:ident { $( $field:ident: $val:expr ),* } ) => {{
-        use esp_println::println;
+        // use esp_println::println;
         let message = crate::shared_code::log_messages::Log::$message { $( $field: $val ),* };
         crate::logging::log_message(message).await;
-        println!("{:?}", message);
+        // println!("{:?}", message);
     }};
     ($message:ident ( $( $val:expr ),* ) ) => {{
-        use esp_println::println;
+        // use esp_println::println;
         let message = crate::shared_code::log_messages::Log::$message ( $( $val ),* );
         crate::logging::log_message(message).await;
-        println!("{:?}", message);
+        // println!("{:?}", message);
     }};
 }
 pub(crate) use log;
@@ -56,6 +58,7 @@ fn get_telemetry() -> &'static Mutex<CriticalSectionRawMutex, Telemetry> {
 }
 
 pub async fn log_message(message: Log) {
+    return;
     let mut telemetry = get_telemetry().lock().await;
     let time = Instant::now() - telemetry.creation_time;
     telemetry.log(LogWithTime {
@@ -106,7 +109,9 @@ impl Telemetry {
     }
 
     fn log(&mut self, message: LogWithTime) {
-        let Ok(encoded) = to_slice_cobs(&message, &mut self.encoding_buffer) else { return; };
+        let Ok(encoded) = to_slice_cobs(&message, &mut self.encoding_buffer) else {
+            return;
+        };
         if self.current_logs.push(encoded) == Ok(true) {
             self.current_logs_full = true;
         }
@@ -121,7 +126,9 @@ impl Telemetry {
             return Err(true);
         }
         let index = id - oldest_id;
-        self.past_logs.get(index as usize, buffer).map_err(|_| false)
+        self.past_logs
+            .get(index as usize, buffer)
+            .map_err(|_| false)
     }
 
     fn get_current_log(&mut self, buffer: &mut [u8]) -> Result<usize, ()> {
@@ -134,7 +141,7 @@ impl Telemetry {
         }
 
         if self.current_logs.used_space() > buffer.len() {
-            println!("Buffer too small to get current log");
+            // println!("Buffer too small to get current log");
             return Err(());
         }
         for (i, byte) in self.current_logs.byte_iter().enumerate() {
@@ -197,7 +204,7 @@ mod data_structures {
             let mut popped = false;
             while self.free_space() < size {
                 if self.count == 0 {
-                    println!("Message too big to be logged: {:02X?}", data);
+                    // println!("Message too big to be logged: {:02X?}", data);
                     return Err(());
                 }
                 self.pop(None);
@@ -222,7 +229,10 @@ mod data_structures {
                 .tuple_windows::<D>()
                 .position(|d| d == D::default())
                 .expect("Safe because we always keep a delimeter at the end of the buffer");
-            let new_start = self.start + index + D::num_items();
+            let mut new_start = self.start + index + D::num_items();
+            if new_start >= self.buffer.len() {
+                new_start -= self.buffer.len();
+            }
             if let Some(buffer) = buffer {
                 let iter = QueueIterator::new(self.buffer, new_start, index + D::num_items());
                 for (i, item) in iter.take(buffer.len()).enumerate() {
@@ -267,7 +277,7 @@ mod data_structures {
                 QueueIterator::new(self.buffer, start, size + D::num_items() - 1).enumerate()
             {
                 if i == buffer.len() {
-                    println!("Buffer overflowed while getting log");
+                    // println!("Buffer overflowed while getting log");
                     return Err(());
                 }
                 buffer[i] = item;

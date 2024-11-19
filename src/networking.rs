@@ -1,9 +1,19 @@
-use crate::{logging::{get_current_log, get_current_log_length, get_log, log}, shared_code::{controller::ControllerState, message_format::{Message, MessageIter}}, watchdog::Watchdog};
+use crate::{
+    logging::{get_current_log, get_current_log_length, get_log, log},
+    shared_code::{
+        controller::ControllerState,
+        message_format::{Message, MessageIter},
+    },
+    watchdog::Watchdog,
+};
 
-use embassy_net::{udp::{PacketMetadata, UdpSocket}, IpEndpoint, Stack};
+use embassy_net::{
+    udp::{PacketMetadata, UdpSocket},
+    IpEndpoint, Stack,
+};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{with_deadline, Duration, Instant, Timer};
-use esp_println::println;
+// use esp_println::println;
 use esp_wifi::wifi::{WifiApDevice, WifiDevice};
 
 macro_rules! static_buffer {
@@ -15,7 +25,11 @@ macro_rules! static_buffer {
 }
 
 #[embassy_executor::task]
-pub async fn handle_networking(stack: &'static Stack<WifiDevice<'static, WifiApDevice>>, controllers: &'static Mutex<NoopRawMutex, (ControllerState, ControllerState)>, watchdog: &'static Watchdog) -> ! {
+pub async fn handle_networking(
+    stack: &'static Stack<WifiDevice<'static, WifiApDevice>>,
+    controllers: &'static Mutex<NoopRawMutex, (ControllerState, ControllerState)>,
+    watchdog: &'static Watchdog,
+) -> ! {
     loop {
         if stack.is_link_up() {
             break;
@@ -42,7 +56,13 @@ pub async fn handle_networking(stack: &'static Stack<WifiDevice<'static, WifiApD
     let mut previous_controller_id = 0;
     let mut log_id = 0;
 
-    let mut socket = UdpSocket::new(stack, rx_metadata, rx_buffer_internal, tx_metadata, tx_buffer_internal);
+    let mut socket = UdpSocket::new(
+        stack,
+        rx_metadata,
+        rx_buffer_internal,
+        tx_metadata,
+        tx_buffer_internal,
+    );
     socket.bind(55440).unwrap();
 
     let mut driver_station_address = None;
@@ -57,14 +77,22 @@ pub async fn handle_networking(stack: &'static Stack<WifiDevice<'static, WifiApD
                 }
                 driver_station_address = Some(addr);
                 if let Ok(ipv4) = addr.addr.as_bytes().try_into() {
-                    log!(WifiReceivedPacket { address: ipv4, port: addr.port });
-                }
-                else {
-                    println!("Received packet from address: {:?}", addr);
+                    log!(WifiReceivedPacket {
+                        address: ipv4,
+                        port: addr.port
+                    });
+                } else {
+                    // println!("Received packet from address: {:?}", addr);
                 }
                 watchdog.feed().await;
 
-                num_resend_requests = receive_packet(&rx_buffer[..size], resend_requests, &mut previous_controller_id, controllers).await;
+                num_resend_requests = receive_packet(
+                    &rx_buffer[..size],
+                    resend_requests,
+                    &mut previous_controller_id,
+                    controllers,
+                )
+                .await;
             }
             Ok(Err(_)) => {
                 log!(ReceivedPacketTooLarge);
@@ -72,16 +100,31 @@ pub async fn handle_networking(stack: &'static Stack<WifiDevice<'static, WifiApD
             Err(_) => {
                 timeout += transmission_period;
                 if let Some(addr) = driver_station_address {
-                    send_packet(&mut socket, addr, tx_buffer, working_buffer, &resend_requests[..num_resend_requests], log_id).await;
-                    log_id += 1;
-                    num_resend_requests = 0;
+                    // send_packet(
+                    //     &mut socket,
+                    //     addr,
+                    //     tx_buffer,
+                    //     working_buffer,
+                    //     &resend_requests[..num_resend_requests],
+                    //     log_id,
+                    // )
+                    // .await;
+                    // log_id += 1;
+                    // num_resend_requests = 0;
                 }
             }
         }
     }
 }
 
-async fn send_packet(socket: &mut UdpSocket<'static>, address: IpEndpoint, data_buffer: &mut [u8], temp_buffer: &mut [u8], resend_requests: &[u32], log_id: u32) {
+async fn send_packet(
+    socket: &mut UdpSocket<'static>,
+    address: IpEndpoint,
+    data_buffer: &mut [u8],
+    temp_buffer: &mut [u8],
+    resend_requests: &[u32],
+    log_id: u32,
+) {
     let current_log_size = 12 + get_current_log_length().await;
     let end_index = data_buffer.len() - current_log_size;
     let other_logs_buffer = &mut data_buffer[..end_index];
@@ -112,7 +155,12 @@ async fn send_packet(socket: &mut UdpSocket<'static>, address: IpEndpoint, data_
     _ = socket.send_to(&data_buffer[..index], address).await;
 }
 
-async fn receive_packet(buffer: &[u8], resend_requests: &mut [u32], previous_controller_id: &mut u32, controllers: &Mutex<NoopRawMutex, (ControllerState, ControllerState)>) -> usize {
+async fn receive_packet(
+    buffer: &[u8],
+    resend_requests: &mut [u32],
+    previous_controller_id: &mut u32,
+    controllers: &Mutex<NoopRawMutex, (ControllerState, ControllerState)>,
+) -> usize {
     let mut size = 0;
     for message in MessageIter::new(buffer) {
         match message {

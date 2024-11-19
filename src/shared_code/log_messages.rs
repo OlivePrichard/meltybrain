@@ -1,8 +1,5 @@
 #![allow(unused)]
 
-#[cfg(target_os = "none")]
-use esp_println::println;
-
 use core::time::Duration;
 use postcard::{from_bytes_cobs, to_slice_cobs};
 use serde::{Deserialize, Serialize};
@@ -20,6 +17,9 @@ pub enum Log {
     ReceivedForgotLogData(u32),
     WatchdogTimeout,
     ConnectionRestored,
+    InitializingMotors,
+    MotorsInitialized,
+    MotorPowers { left: u8, right: u8 },
 }
 
 impl Log {
@@ -40,6 +40,9 @@ impl Log {
             Log::ReceivedForgotLogData(id) => format!("Received forgot log data {}", id),
             Log::WatchdogTimeout => "Watchdog timeout".to_string(),
             Log::ConnectionRestored => "Connection restored".to_string(),
+            Log::InitializingMotors => "Initializing motors".to_string(),
+            Log::MotorsInitialized => "Motors initialized".to_string(),
+            Log::MotorPowers { left, right } => format!("Motor powers: left: {}, right: {}", left, right),
         }
     }
 
@@ -79,7 +82,13 @@ impl<'a> Iterator for LogIterator<'a> {
             if self.buffer.len() == self.index {
                 return None;
             }
-            let Some(boundary) = self.buffer.iter().skip(self.index).position(|&b| b == 0).map(|i| i + 1 + self.index) else {
+            let Some(boundary) = self
+                .buffer
+                .iter()
+                .skip(self.index)
+                .position(|&b| b == 0)
+                .map(|i| i + 1 + self.index)
+            else {
                 self.index = self.buffer.len();
                 return None;
             };
@@ -89,6 +98,7 @@ impl<'a> Iterator for LogIterator<'a> {
                 // println!("Got good log message {:?} from bytes: {:02X?}", log_message, data);
                 return Some(log_message);
             } else {
+                #[cfg(not(target_os = "none"))]
                 println!("Got nonsense log message: {:02X?}", data);
             }
         }

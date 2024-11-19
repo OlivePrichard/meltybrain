@@ -26,6 +26,14 @@ impl StickState {
         let y = self.y.to_le_bytes();
         [x[0], x[1], y[0], y[1]]
     }
+
+    pub fn get_x(&self) -> f32 {
+        self.x as f32 / 32768_f32
+    }
+
+    pub fn get_y(&self) -> f32 {
+        self.y as f32 / 32768_f32
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
