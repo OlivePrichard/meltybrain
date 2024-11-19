@@ -83,3 +83,78 @@ async fn main(_spawner: Spawner) {
         }
     }
 }
+
+fn angle_wrap(angle: f32) -> f32 {
+    let mut angle = angle;
+    while angle > 3.14 { angle -= 2.0 * 3.14159265359 }
+    while angle < -3.14 { angle += 2.0 * 3.14159265359 }
+    angle
+}       
+
+fn iterative_sqrt(x: f32) -> f32 {
+    let mut guess = x;
+    for _ in 0..10 {
+        guess = (guess + x / guess) / 2.0;
+    }
+    guess
+}
+
+fn factorial(n: u32) -> f32 {
+    let mut result = 1.0;
+    for i in 1..=n {
+        result *= i as f32;
+    }
+    result
+}
+
+fn pow(x: f32, n: u32) -> f32 {
+    let mut result = 1.0;
+    for _ in 0..n {
+        result *= x;
+    }
+    result
+}
+
+fn iterative_sin(mut x: f32) -> f32 {
+    x = angle_wrap(x);  
+    // Normalize x to be between -2π and 2π
+    const TWO_PI: f32 = 2.0 * 3.14159265359;
+    x = x % TWO_PI;
+    
+    let mut result = 0.0;
+    // Use first 7 terms of Taylor series for reasonable accuracy
+    // sin(x) = x - x³/3! + x⁵/5! - x⁷/7! + x⁹/9! - x¹¹/11! + x¹³/13!
+    for i in 0..7 {
+        let n = 2 * i + 1;
+        let term = pow(x, n as u32) / factorial(n as u32);
+        if i % 2 == 0 {
+            result += term;
+        } else {
+            result -= term;
+        }
+    }
+    result
+}
+
+fn iterative_cos(mut x: f32) -> f32 {
+    x = angle_wrap(x);
+    // Normalize x to be between -2π and 2π
+    const TWO_PI: f32 = 2.0 * 3.14159265359;
+    x = x % TWO_PI;
+    
+    let mut result = 0.0;
+    // Use first 7 terms of Taylor series for reasonable accuracy
+    // cos(x) = 1 - x²/2! + x⁴/4! - x⁶/6! + x⁸/8! - x¹⁰/10! + x¹²/12!
+    for i in 0..7 {
+        let n = 2 * i;
+        let term = pow(x, n as u32) / factorial(n as u32);
+        if i % 2 == 0 {
+            result += term;
+        } else {
+            result -= term;
+        }
+    }
+    result
+}
+
+
