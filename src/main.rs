@@ -91,14 +91,6 @@ fn angle_wrap(angle: f32) -> f32 {
     angle
 }       
 
-fn iterative_sqrt(x: f32) -> f32 {
-    let mut guess = x;
-    for _ in 0..10 {
-        guess = (guess + x / guess) / 2.0;
-    }
-    guess
-}
-
 fn factorial(n: u32) -> f32 {
     let mut result = 1.0;
     for i in 1..=n {
@@ -157,4 +149,11 @@ fn iterative_cos(mut x: f32) -> f32 {
     result
 }
 
+fn fast_inverse_sqrt(x: f32) -> f32 {
+    let i = x.to_bits();
+    let i = 0x5f3759df - (i >> 1);
+    let mut y = f32::from_bits(i);
+    y *= (1.5 - 0.5 * x * y * y);
+    y * (1.5 - 0.5 * x * y * y)
+}   
 
