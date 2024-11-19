@@ -3,19 +3,29 @@ use data_structures::CobsQueue;
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, once_lock::OnceLock};
 use embassy_time::Instant;
+use esp_println::println;
 use static_cell::StaticCell;
 use postcard::to_slice_cobs;
 
 macro_rules! log {
-    ($message:ident) => {
-        crate::logging::log_message(crate::shared_code::log_messages::Log::$message).await
-    };
-    ($message:ident { $( $field:ident: $val:expr ),* } ) => {
-        crate::logging::log_message(crate::shared_code::log_messages::Log::$message { $( $field: $val ),* }).await
-    };
-    ($message:ident ( $( $val:expr ),* ) ) => {
-        crate::logging::log_message(crate::shared_code::log_messages::Log::$message ( $( $val ),* )).await
-    };
+    ($message:ident) => {{
+        use esp_println::println;
+        let message = crate::shared_code::log_messages::Log::$message;
+        crate::logging::log_message(message).await;
+        println!("{:?}", message);
+    }};
+    ($message:ident { $( $field:ident: $val:expr ),* } ) => {{
+        use esp_println::println;
+        let message = crate::shared_code::log_messages::Log::$message { $( $field: $val ),* };
+        crate::logging::log_message(message).await;
+        println!("{:?}", message);
+    }};
+    ($message:ident ( $( $val:expr ),* ) ) => {{
+        use esp_println::println;
+        let message = crate::shared_code::log_messages::Log::$message ( $( $val ),* );
+        crate::logging::log_message(message).await;
+        println!("{:?}", message);
+    }};
 }
 pub(crate) use log;
 
@@ -124,6 +134,7 @@ impl Telemetry {
         }
 
         if self.current_logs.used_space() > buffer.len() {
+            println!("Buffer too small to get current log");
             return Err(());
         }
         for (i, byte) in self.current_logs.byte_iter().enumerate() {
@@ -140,10 +151,12 @@ impl Telemetry {
 }
 
 mod data_structures {
-    use core::{iter, marker::PhantomData};
+    use core::{fmt::Debug, iter, marker::PhantomData};
+    use esp_println::println;
     use itertools::{traits::HomogeneousTuple, Itertools};
 
     // D is a u8 tuple with length equal to the number of zeros acting as a delimiter
+    #[derive(Debug)]
     pub struct CobsQueue<'a, D> {
         buffer: &'a mut [u8],
         start: usize,
@@ -154,7 +167,7 @@ mod data_structures {
 
     impl<'a, D> CobsQueue<'a, D>
     where
-        D: HomogeneousTuple<Item = u8> + Default + Copy + Eq,
+        D: HomogeneousTuple<Item = u8> + Default + Copy + Eq + Debug,
     {
         pub fn new(buffer: &'a mut [u8]) -> Self {
             Self {
@@ -167,10 +180,10 @@ mod data_structures {
         }
 
         fn free_space(&self) -> usize {
-            if self.end < self.start || self.count == 0 {
-                self.start - self.end
+            if self.start < self.end || self.count == 0 {
+                self.buffer.len() - self.end + self.start
             } else {
-                self.buffer.len() + self.start - self.end
+                self.start - self.end
             }
         }
 
@@ -184,6 +197,7 @@ mod data_structures {
             let mut popped = false;
             while self.free_space() < size {
                 if self.count == 0 {
+                    println!("Message too big to be logged: {:02X?}", data);
                     return Err(());
                 }
                 self.pop(None);
@@ -253,6 +267,7 @@ mod data_structures {
                 QueueIterator::new(self.buffer, start, size + D::num_items() - 1).enumerate()
             {
                 if i == buffer.len() {
+                    println!("Buffer overflowed while getting log");
                     return Err(());
                 }
                 buffer[i] = item;

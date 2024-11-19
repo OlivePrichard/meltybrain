@@ -1,3 +1,6 @@
+#[cfg(target_os = "none")]
+use esp_println::println;
+
 use crate::shared_code::controller::ControllerState;
 
 macro_rules! discriminant_conversion {
@@ -88,7 +91,7 @@ impl<'a> Message<'a> {
                 .ok()
             {
                 Some(Self::ControllerData(..)) => {
-                    if buffer.len() > 36 {
+                    if buffer.len() >= 36 {
                         Some(Self::ControllerData(
                             id,
                             ControllerState::from_le_bytes(buffer[12..24].try_into().unwrap()),
@@ -120,6 +123,7 @@ pub struct MessageIter<'a> {
 
 impl<'a> MessageIter<'a> {
     pub fn new(buffer: &'a [u8]) -> Self {
+        // println!("New MessageIter: {:02X?}", buffer);
         Self { buffer, index: 0 }
     }
 }
@@ -138,7 +142,6 @@ impl<'a> Iterator for MessageIter<'a> {
             if let Some(message) = data {
                 break message;
             }
-            #[cfg(not(target_os = "none"))]
             println!(
                 "Got {len} bytes of nonsense: {:02X?}",
                 &self.buffer[self.index - len..self.index]

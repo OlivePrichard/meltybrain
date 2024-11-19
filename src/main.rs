@@ -64,6 +64,7 @@ async fn connection(mut controller: WifiController<'static>) -> ! {
             println!("Starting wifi");
             controller.start().await.unwrap();
             println!("Wifi started!");
+            log!(WifiStarted);
         }
     }
 }
@@ -92,6 +93,7 @@ async fn watchdog_task(watchdog: &'static Watchdog, armed: &'static Mutex<NoopRa
         while !watchdog.is_fed().await {
             Timer::after(delay).await;
         }
+        log!(ConnectionRestored);
         {
             let mut lock = armed.lock().await;
             *lock = true;
@@ -101,6 +103,8 @@ async fn watchdog_task(watchdog: &'static Watchdog, armed: &'static Mutex<NoopRa
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) -> ! {
+    log!(Initializing);
+
     esp_println::logger::init_logger_from_env();
     let peripherals = esp_hal::init({
         let mut config = esp_hal::Config::default();
@@ -130,6 +134,8 @@ async fn main(spawner: Spawner) -> ! {
     use esp_hal::timer::systimer::{SystemTimer, Target};
     let systimer = SystemTimer::new(peripherals.SYSTIMER).split::<Target>();
     esp_hal_embassy::init(systimer.alarm0);
+
+    log!(Initialized);
 
     let config = embassy_net::Config::ipv4_static(StaticConfigV4 {
         address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 2, 1), 24),

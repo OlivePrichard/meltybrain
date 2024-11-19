@@ -1,5 +1,8 @@
 #![allow(unused)]
 
+#[cfg(target_os = "none")]
+use esp_println::println;
+
 use core::time::Duration;
 use postcard::{from_bytes_cobs, to_slice_cobs};
 use serde::{Deserialize, Serialize};
@@ -16,6 +19,7 @@ pub enum Log {
     ReceivedLogData(u32),
     ReceivedForgotLogData(u32),
     WatchdogTimeout,
+    ConnectionRestored,
 }
 
 impl Log {
@@ -35,6 +39,7 @@ impl Log {
             Log::ReceivedLogData(id) => format!("Received log data {}", id),
             Log::ReceivedForgotLogData(id) => format!("Received forgot log data {}", id),
             Log::WatchdogTimeout => "Watchdog timeout".to_string(),
+            Log::ConnectionRestored => "Connection restored".to_string(),
         }
     }
 
@@ -61,6 +66,7 @@ pub struct LogIterator<'a> {
 
 impl<'a> LogIterator<'a> {
     pub fn new(buffer: &'a mut [u8]) -> Self {
+        // println!("New Log Iterator: {:02X?}", buffer);
         Self { buffer, index: 0 }
     }
 }
@@ -73,16 +79,16 @@ impl<'a> Iterator for LogIterator<'a> {
             if self.buffer.len() == self.index {
                 return None;
             }
-            let Some(boundary) = self.buffer.iter().position(|&b| b == 0).map(|i| i + 1) else {
+            let Some(boundary) = self.buffer.iter().skip(self.index).position(|&b| b == 0).map(|i| i + 1 + self.index) else {
                 self.index = self.buffer.len();
                 return None;
             };
             let data = &mut self.buffer[self.index..boundary];
             self.index = boundary;
             if let Some(log_message) = Log::from_bytes(data) {
+                // println!("Got good log message {:?} from bytes: {:02X?}", log_message, data);
                 return Some(log_message);
             } else {
-                #[cfg(not(target_os = "none"))]
                 println!("Got nonsense log message: {:02X?}", data);
             }
         }

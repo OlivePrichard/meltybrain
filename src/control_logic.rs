@@ -5,6 +5,8 @@ use crate::shared_code::controller::ControllerState;
 
 #[embassy_executor::task]
 pub async fn control_logic(controllers: &'static Mutex<NoopRawMutex, (ControllerState, ControllerState)>, armed: &'static Mutex<NoopRawMutex, bool>) -> ! {
+    _ = controllers;
+    _ = armed;
     loop {
         yield_now().await;
     }
