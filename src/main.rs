@@ -2,6 +2,7 @@
 #![no_main]
 
 mod control_logic;
+mod hardware;
 mod logging;
 mod math;
 mod networking;
@@ -18,11 +19,15 @@ use esp_backtrace as _;
 use esp_hal::{
     clock::CpuClock,
     gpio::Io,
+    i2c::I2c,
     ledc::{channel, timer, Ledc, LowSpeed},
+    peripherals::I2C0,
     prelude::*,
     rng::Rng,
     timer::timg::TimerGroup,
+    Async,
 };
+use hardware::Accelerometer;
 // use esp_println::println;
 use esp_wifi::{
     init,
@@ -47,6 +52,7 @@ macro_rules! mk_static {
         x
     }};
 }
+pub(crate) use mk_static;
 
 // gateway ip is 192.168.2.1
 #[embassy_executor::task]
@@ -142,22 +148,30 @@ async fn main(spawner: Spawner) -> ! {
         })
         .unwrap();
 
-    let mut left_motor = ledc.get_channel(channel::Number::Channel0, left_motor_pin);
-    left_motor
+    let mut left_motor_channel = ledc.get_channel(channel::Number::Channel0, left_motor_pin);
+    left_motor_channel
         .configure(channel::config::Config {
             timer: lstimer0,
             duty_pct: 10,
             pin_config: channel::config::PinConfig::PushPull,
         })
         .unwrap();
-    let mut right_motor = ledc.get_channel(channel::Number::Channel0, right_motor_pin);
-    right_motor
+    let mut right_motor_channel = ledc.get_channel(channel::Number::Channel0, right_motor_pin);
+    right_motor_channel
         .configure(channel::config::Config {
             timer: lstimer0,
             duty_pct: 10,
             pin_config: channel::config::PinConfig::PushPull,
         })
         .unwrap();
+
+    let mut left_motor = hardware::Motor::new(left_motor_channel);
+    let mut right_motor = hardware::Motor::new(right_motor_channel);
+
+    let i2c0: I2c<'static, I2C0, Async> =
+        I2c::new_async(peripherals.I2C0, io.pins.gpio6, io.pins.gpio7, 400.kHz());
+    let mut accelerometer = Accelerometer::new(i2c0);
+    accelerometer.init().await.unwrap();
 
     esp_alloc::heap_allocator!(72 * 1024);
 
@@ -183,6 +197,9 @@ async fn main(spawner: Spawner) -> ! {
     esp_hal_embassy::init(systimer.alarm0);
 
     log!(Initialized);
+
+    // accelerometer.find_calibration_offset().await.unwrap();
+    // loop {}
 
     let config = embassy_net::Config::ipv4_static(StaticConfigV4 {
         address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 2, 1), 24),
@@ -225,16 +242,13 @@ async fn main(spawner: Spawner) -> ! {
     spawner
         .spawn(watchdog_task(connection_watchdog, armed))
         .ok();
-    spawner
-        .spawn(control_logic(
-            controller_data,
-            armed,
-            left_motor,
-            right_motor,
-        ))
-        .ok();
-
-    loop {
-        Timer::after(Duration::from_secs(1)).await;
-    }
+    control_logic(
+        spawner,
+        controller_data,
+        armed,
+        left_motor,
+        right_motor,
+        accelerometer,
+    )
+    .await;
 }

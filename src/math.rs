@@ -1,6 +1,20 @@
 #![allow(dead_code)]
 
 #[inline]
+pub fn rad2deg(rad: f32) -> f32 {
+    use core::f32::consts::PI;
+
+    rad * 180. / PI
+}
+
+#[inline]
+pub fn deg2rad(rad: f32) -> f32 {
+    use core::f32::consts::PI;
+
+    rad * PI / 180.
+}
+
+#[inline]
 pub fn sin(mut x: f32) -> f32 {
     use core::f32::consts::{FRAC_PI_4, PI};
 
@@ -125,6 +139,10 @@ pub fn sqrt(x: f32) -> f32 {
     x * inv_sqrt(x)
 }
 
+#[inline]
+pub fn abs(x: f32) -> f32 {
+    f32::from_bits(x.to_bits() & 0x7F_FF_FF_FF)
+}
 
 #[inline]
 fn reduce(mut x: f32) -> (f32, i32) {
