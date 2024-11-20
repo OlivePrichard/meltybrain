@@ -42,7 +42,9 @@ impl Log {
             Log::ConnectionRestored => "Connection restored".to_string(),
             Log::InitializingMotors => "Initializing motors".to_string(),
             Log::MotorsInitialized => "Motors initialized".to_string(),
-            Log::MotorPowers { left, right } => format!("Motor powers: left: {}, right: {}", left, right),
+            Log::MotorPowers { left, right } => {
+                format!("Motor powers: left: {}, right: {}", left, right)
+            }
         }
     }
 

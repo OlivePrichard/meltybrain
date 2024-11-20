@@ -3,6 +3,7 @@
 
 mod control_logic;
 mod logging;
+mod math;
 mod networking;
 mod shared_code;
 mod watchdog;
