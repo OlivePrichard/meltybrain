@@ -2,7 +2,7 @@ use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use esp_hal::{gpio::GpioPin, spi};
-// use esp_println::println;
+use esp_println::println;
 
 use crate::{
     hardware::{Accelerometer, Motor},
@@ -48,7 +48,7 @@ async fn accelerometer_data(
     state_vector: &'static Mutex<NoopRawMutex, StateVector>,
     mut accelerometer: Accelerometer,
 ) -> ! {
-    const ACCELEROMETER_POSITION: f32 = 6.0 * 1.0e-3; // 6mm
+    const ACCELEROMETER_POSITION: f32 = 5.0 * 1.0e-3; // 6mm
 
     let period = Duration::from_hz(800);
 
@@ -66,6 +66,9 @@ async fn accelerometer_data(
     }
     let offset = offset_calibration / SAMPLES as f32;
 
+    let mut observer = ConstantVelocityObserver::new(0.09, 0.);
+    let mut omega_offset = 100;
+
     loop {
         Timer::after(period).await;
 
@@ -78,14 +81,15 @@ async fn accelerometer_data(
         // a = r * omega^2
         // omega = 1 / sqrt(r / a)
         // println!("{}", data.y - offset);
-        let omega = math::sqrt(math::abs(data.y - offset) / ACCELEROMETER_POSITION);
+        let omega_raw = math::sqrt(math::abs(data.y - offset) / ACCELEROMETER_POSITION);
+        let omega = 100.0; // observer.observe(omega_raw);
 
         let mut state = state_vector.lock().await;
-        let average_omega = (state.omega + omega) * 0.5;
+        // let average_omega = (state.omega + omega) * 0.5;
         let dt = time - state.time;
-        let dtheta = average_omega * f32_seconds(dt);
+        let dtheta = omega * f32_seconds(dt);
         let theta = state.theta + dtheta;
-        *state = StateVector { time, theta, omega }
+        *state = StateVector { time, theta, omega };
     }
 }
 
@@ -100,7 +104,14 @@ async fn motor_control(
     let mut ticker = Ticker::every(dt);
 
     let spin_power = 60.;
-    let move_power = 20.;
+    let move_power = 30.;
+
+    let mut prev_up = false;
+    let mut prev_down = false;
+    let mut started = false;
+    let mut omega = 100.; // rad / s
+    let step_size = 5.;
+    let start_time = Instant::now();
 
     loop {
         ticker.next().await;
@@ -108,8 +119,12 @@ async fn motor_control(
         if !*armed.lock().await {
             left_motor.set_duty(50).unwrap();
             right_motor.set_duty(50).unwrap();
+            if started {
+                println!("Current angular velocity: {} rad/s", omega);
+            }
             continue;
         }
+        started = true;
 
         let (primary_controller, _secondary_controller) = { *controllers.lock().await };
         let state = { state_vector.lock().await.predict(Instant::now()) };
@@ -122,20 +137,35 @@ async fn motor_control(
             right_power += spin_power;
         }
 
-        let angle_correction = f32_seconds(dt) * state.omega;
-        let stick_x = primary_controller.left_stick.get_x();
-        let stick_y = primary_controller.left_stick.get_y();
-        let magnitude = math::sqrt(stick_x * stick_x + stick_y * stick_y);
-        if magnitude > 0.1 {
-            let controller_angle = math::atan2(
-                primary_controller.left_stick.get_y(),
-                primary_controller.left_stick.get_x(),
-            );
-            let angle_error = state.theta - controller_angle;
-            let movement = move_power * math::cos(angle_error + angle_correction);
-            left_power -= movement;
-            right_power += movement;
+        let up = primary_controller.get(Button::Up);
+        let down = primary_controller.get(Button::Down);
+        if up && !prev_up {
+            omega += step_size;
         }
+        if down && !prev_down {
+            omega -= step_size;
+        }
+        prev_up = up;
+        prev_down = down;
+
+        let t = f32_seconds(Instant::now() - start_time);
+        let movement_power = move_power * math::cos(t * omega);
+        left_power -= movement_power;
+        right_power += movement_power;
+        // let angle_correction = f32_seconds(dt) * state.omega;
+        // let stick_x = primary_controller.left_stick.get_x();
+        // let stick_y = primary_controller.left_stick.get_y();
+        // let magnitude = math::sqrt(stick_x * stick_x + stick_y * stick_y);
+        // if magnitude > 0.1 {
+        //     let controller_angle = math::atan2(
+        //         primary_controller.left_stick.get_y(),
+        //         primary_controller.left_stick.get_x(),
+        //     );
+        //     let angle_error = state.theta - controller_angle;
+        //     let movement = move_power * math::cos(angle_error + angle_correction);
+        //     left_power -= movement;
+        //     right_power += movement;
+        // }
 
         // println!("Angle: {}", math::rad2deg(state.theta));
 
@@ -186,6 +216,46 @@ impl StateVector {
         }
     }
 }
+
+
+struct LowPassFilter {
+    alpha: f32,
+    last_value: f32,
+}
+
+impl LowPassFilter {
+    fn new(alpha: f32, initial_value: f32) -> Self {
+        Self { alpha, last_value: initial_value }
+    }
+
+    fn filter(&mut self, value: f32) -> f32 {
+        self.last_value = self.last_value * self.alpha + value * (1. - self.alpha);
+        self.last_value
+    }
+}
+
+impl Default for LowPassFilter {
+    fn default() -> Self {
+        Self::new(0.2, 0.)
+    }
+}
+
+struct ConstantVelocityObserver {
+    k: f32,
+    estimated_velocity: f32,
+}
+
+impl ConstantVelocityObserver {
+    fn new(k: f32, initial_velocity: f32) -> Self {
+        Self { k, estimated_velocity: initial_velocity }
+    }
+
+    fn observe(&mut self, z: f32) -> f32{
+        self.estimated_velocity = self.estimated_velocity + self.k * (z - self.estimated_velocity);
+        self.estimated_velocity
+    }
+}
+
 
 // leftChannel.start_duty_fade(0, 100, 1000).unwrap();
 // rightChannel.start_duty_fade(0, 100, 1000).unwrap();
