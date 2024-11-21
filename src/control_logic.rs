@@ -1,12 +1,12 @@
 use as5600::asynch::As5600;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
-use embassy_time::{Duration, Instant, Ticker, Timer};
+use embassy_time::{Duration, Instant, Ticker};
 use esp_hal::{gpio::GpioPin, i2c::I2c, peripherals::I2C0, Async};
 // use esp_println::println;
 
 use crate::{
-    hardware::{Accelerometer, Motor, WheelAngle},
+    hardware::{Motor, WheelAngle},
     logging::log,
     math,
     shared_code::controller::{Button, ControllerState},
@@ -46,54 +46,54 @@ pub async fn control_logic(
 }
 
 // #[embassy_executor::task]
-async fn accelerometer_data(
-    state_vector: &'static Mutex<NoopRawMutex, StateVector>,
-    mut accelerometer: Accelerometer,
-) -> ! {
-    const ACCELEROMETER_POSITION: f32 = 5.0 * 1.0e-3; // 6mm
+// async fn accelerometer_data(
+//     state_vector: &'static Mutex<NoopRawMutex, StateVector>,
+//     mut accelerometer: Accelerometer,
+// ) -> ! {
+//     const ACCELEROMETER_POSITION: f32 = 5.0 * 1.0e-3; // 6mm
 
-    let period = Duration::from_hz(800);
+//     let period = Duration::from_hz(800);
 
-    let mut _offset_calibration = 0.;
-    const SAMPLES: usize = 800 * 5;
+//     let mut _offset_calibration = 0.;
+//     const SAMPLES: usize = 800 * 5;
 
-    for _ in 0..SAMPLES {
-        Timer::after(period).await;
+//     for _ in 0..SAMPLES {
+//         Timer::after(period).await;
 
-        let Ok(data) = accelerometer.read_all().await else {
-            continue;
-        };
+//         let Ok(data) = accelerometer.read_all().await else {
+//             continue;
+//         };
 
-        _offset_calibration += data.y;
-    }
-    // let offset = offset_calibration / SAMPLES as f32;
+//         _offset_calibration += data.y;
+//     }
+//     // let offset = offset_calibration / SAMPLES as f32;
 
-    // let mut observer = ConstantVelocityObserver::new(0.09, 0.);
-    // let mut omega_offset = 100;
+//     // let mut observer = ConstantVelocityObserver::new(0.09, 0.);
+//     // let mut omega_offset = 100;
 
-    loop {
-        Timer::after(period).await;
+//     loop {
+//         Timer::after(period).await;
 
-        let Ok(_data) = accelerometer.read_all().await else {
-            continue;
-        };
-        let time = Instant::now();
-        // println!("{}", data);
+//         let Ok(_data) = accelerometer.read_all().await else {
+//             continue;
+//         };
+//         let time = Instant::now();
+//         // println!("{}", data);
 
-        // a = r * omega^2
-        // omega = 1 / sqrt(r / a)
-        // println!("{}", data.y - offset);
-        // let omega_raw = math::sqrt(math::abs(data.y - offset) / ACCELEROMETER_POSITION);
-        let omega = 100.0; // observer.observe(omega_raw);
+//         // a = r * omega^2
+//         // omega = 1 / sqrt(r / a)
+//         // println!("{}", data.y - offset);
+//         // let omega_raw = math::sqrt(math::abs(data.y - offset) / ACCELEROMETER_POSITION);
+//         let omega = 100.0; // observer.observe(omega_raw);
 
-        let mut state = state_vector.lock().await;
-        // let average_omega = (state.omega + omega) * 0.5;
-        let dt = time - state.time;
-        let dtheta = omega * f32_seconds(dt);
-        let theta = state.theta + dtheta;
-        *state = StateVector { time, theta, omega };
-    }
-}
+//         let mut state = state_vector.lock().await;
+//         // let average_omega = (state.omega + omega) * 0.5;
+//         let dt = time - state.time;
+//         let dtheta = omega * f32_seconds(dt);
+//         let theta = state.theta + dtheta;
+//         *state = StateVector { time, theta, omega };
+//     }
+// }
 
 // fn encoder_data(encoder: As5600<I2C0>, state_vector: &'static Mutex<NoopRawMutex, StateVector>) -> ! {
 //     let period = Duration::from_hz(2000);
@@ -190,8 +190,8 @@ async fn motor_control(
 
         // println!("{:.8}\t{:.8}", left_power, right_power);
 
-        // left_motor.set_power(left_power).unwrap();
-        // right_motor.set_power(right_power).unwrap();
+        left_motor.set_power(left_power).unwrap();
+        right_motor.set_power(right_power).unwrap();
     }
 }
 
@@ -218,14 +218,14 @@ fn f32_seconds(duration: Duration) -> f32 {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct StateVector {
+struct _StateVector {
     time: Instant,
     theta: f32, // radians
     omega: f32, // radians per second
 }
 
-impl StateVector {
-    fn predict(&self, current_time: Instant) -> Self {
+impl _StateVector {
+    fn _predict(&self, current_time: Instant) -> Self {
         let dt = current_time - self.time;
         let theta = self.theta + self.omega * f32_seconds(dt);
         let omega = self.omega;
@@ -238,21 +238,21 @@ impl StateVector {
 }
 
 struct LowPassFilter {
-    alpha: f32,
-    last_value: f32,
+    _alpha: f32,
+    _last_value: f32,
 }
 
 impl LowPassFilter {
     fn new(alpha: f32, initial_value: f32) -> Self {
         Self {
-            alpha,
-            last_value: initial_value,
+            _alpha: alpha,
+            _last_value: initial_value,
         }
     }
 
-    fn filter(&mut self, value: f32) -> f32 {
-        self.last_value = self.last_value * self.alpha + value * (1. - self.alpha);
-        self.last_value
+    fn _filter(&mut self, value: f32) -> f32 {
+        self._last_value = self._last_value * self._alpha + value * (1. - self._alpha);
+        self._last_value
     }
 }
 
@@ -262,20 +262,20 @@ impl Default for LowPassFilter {
     }
 }
 
-struct ConstantVelocityObserver {
+struct _ConstantVelocityObserver {
     k: f32,
     estimated_velocity: f32,
 }
 
-impl ConstantVelocityObserver {
-    fn new(k: f32, initial_velocity: f32) -> Self {
+impl _ConstantVelocityObserver {
+    fn _new(k: f32, initial_velocity: f32) -> Self {
         Self {
             k,
             estimated_velocity: initial_velocity,
         }
     }
 
-    fn observe(&mut self, z: f32) -> f32 {
+    fn _observe(&mut self, z: f32) -> f32 {
         self.estimated_velocity = self.estimated_velocity + self.k * (z - self.estimated_velocity);
         self.estimated_velocity
     }
