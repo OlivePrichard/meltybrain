@@ -1,14 +1,14 @@
+use as5600::asynch::As5600;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Instant, Ticker, Timer};
-use esp_hal::{gpio::GpioPin, spi};
-use esp_println::println;
+use esp_hal::{gpio::GpioPin, i2c::I2c, peripherals::I2C0, Async};
 
 use crate::{
-    hardware::{Accelerometer, Motor},
+    hardware::{Accelerometer, Motor, WheelAngle},
     logging::log,
     math, mk_static,
-    shared_code::controller::{ControllerState, Button},
+    shared_code::controller::{Button, ControllerState},
 };
 
 pub async fn control_logic(
@@ -17,7 +17,8 @@ pub async fn control_logic(
     armed: &'static Mutex<NoopRawMutex, bool>,
     mut left_motor: Motor<GpioPin<21>>,
     mut right_motor: Motor<GpioPin<5>>,
-    accelerometer: Accelerometer,
+    // accelerometer: Accelerometer,
+    encoder: As5600<I2c<'static, I2C0, Async>>,
 ) -> ! {
     log!(InitializingMotors);
 
@@ -37,10 +38,10 @@ pub async fn control_logic(
         omega: 0.0,
     }));
 
-    spawner
-        .spawn(accelerometer_data(state_vector, accelerometer))
-        .ok();
-    motor_control(controllers, armed, left_motor, right_motor, state_vector).await;
+    // spawner
+    //     .spawn(accelerometer_data(state_vector, accelerometer))
+    //     .ok();
+    motor_control(controllers, armed, left_motor, right_motor, encoder).await;
 }
 
 #[embassy_executor::task]
@@ -93,25 +94,32 @@ async fn accelerometer_data(
     }
 }
 
+// fn encoder_data(encoder: As5600<I2C0>, state_vector: &'static Mutex<NoopRawMutex, StateVector>) -> ! {
+//     let period = Duration::from_hz(2000);
+// }
+
 async fn motor_control(
     controllers: &Mutex<NoopRawMutex, (ControllerState, ControllerState)>,
     armed: &Mutex<NoopRawMutex, bool>,
     mut left_motor: Motor<GpioPin<21>>,
     mut right_motor: Motor<GpioPin<5>>,
-    state_vector: &Mutex<NoopRawMutex, StateVector>,
+    // state_vector: &Mutex<NoopRawMutex, StateVector>,
+    mut encoder: As5600<I2c<'static, I2C0, Async>>,
 ) -> ! {
     let dt = Duration::from_hz(2000);
     let mut ticker = Ticker::every(dt);
 
-    let spin_power = 60.;
-    let move_power = 30.;
+    let spin_power = 10.;
+    let move_power = 5.;
 
-    let mut prev_up = false;
-    let mut prev_down = false;
-    let mut started = false;
-    let mut omega = 100.; // rad / s
-    let step_size = 5.;
-    let start_time = Instant::now();
+    let mut measurment_buffer = [(Instant::now(), WheelAngle::default()); 400];
+    let mut measurment_index = 0;
+
+    let mut theta = 0.;
+
+    const ANGLE_CONVERSION: f32 = core::f32::consts::TAU / 4096.;
+    const TRACK_WIDTH: f32 = 120. * 1e-3;
+    const WHEEL_DIAMETER: f32 = 30. * 1e-3;
 
     loop {
         ticker.next().await;
@@ -119,15 +127,11 @@ async fn motor_control(
         if !*armed.lock().await {
             left_motor.set_duty(50).unwrap();
             right_motor.set_duty(50).unwrap();
-            if started {
-                println!("Current angular velocity: {} rad/s", omega);
-            }
             continue;
         }
-        started = true;
 
         let (primary_controller, _secondary_controller) = { *controllers.lock().await };
-        let state = { state_vector.lock().await.predict(Instant::now()) };
+        // let state = { state_vector.lock().await.predict(Instant::now()) };
 
         let mut left_power = 0.;
         let mut right_power = 0.;
@@ -137,21 +141,35 @@ async fn motor_control(
             right_power += spin_power;
         }
 
-        let up = primary_controller.get(Button::Up);
-        let down = primary_controller.get(Button::Down);
-        if up && !prev_up {
-            omega += step_size;
+        let Ok(angle) = encoder.angle().await else { continue; };
+        let current_time = Instant::now();
+        let radians = angle as f32 * ANGLE_CONVERSION;
+        let mut earliest_measurement_index = measurment_index + 1;
+        if earliest_measurement_index >= measurment_buffer.len() {
+            earliest_measurement_index = 0;
         }
-        if down && !prev_down {
-            omega -= step_size;
-        }
-        prev_up = up;
-        prev_down = down;
+        let (earliest_time, earliest_angle) = measurment_buffer[earliest_measurement_index];
+        let (latest_time, latest_angle) = measurment_buffer[measurment_index];
+        let current_angle = latest_angle.new(radians);
+        let average_delta_angle = current_angle - earliest_angle;
+        let average_delta_time = f32_seconds(current_time - earliest_time);
+        let omega = average_delta_angle / average_delta_time * WHEEL_DIAMETER / TRACK_WIDTH;
+        let dt = f32_seconds(current_time - latest_time);
+        theta += omega * dt;
+        measurment_buffer[earliest_measurement_index] = (current_time, current_angle);
+        measurment_index = earliest_measurement_index;
 
-        let t = f32_seconds(Instant::now() - start_time);
-        let movement_power = move_power * math::cos(t * omega);
-        left_power -= movement_power;
-        right_power += movement_power;
+        let stick_x = primary_controller.left_stick.get_x();
+        let stick_y = primary_controller.left_stick.get_y();
+        let magnitude = math::sqrt(stick_x * stick_x + stick_y * stick_y);
+        if magnitude > 0.2 {
+            let correction = dt * omega;
+            let stick_angle = math::atan2(stick_y, stick_x);
+            let angle_error = theta - stick_angle;
+            let movement_power = move_power * math::cos(angle_error + correction);
+            left_power -= movement_power;
+            right_power += movement_power;
+        }
         // let angle_correction = f32_seconds(dt) * state.omega;
         // let stick_x = primary_controller.left_stick.get_x();
         // let stick_y = primary_controller.left_stick.get_y();
@@ -217,7 +235,6 @@ impl StateVector {
     }
 }
 
-
 struct LowPassFilter {
     alpha: f32,
     last_value: f32,
@@ -225,7 +242,10 @@ struct LowPassFilter {
 
 impl LowPassFilter {
     fn new(alpha: f32, initial_value: f32) -> Self {
-        Self { alpha, last_value: initial_value }
+        Self {
+            alpha,
+            last_value: initial_value,
+        }
     }
 
     fn filter(&mut self, value: f32) -> f32 {
@@ -247,15 +267,17 @@ struct ConstantVelocityObserver {
 
 impl ConstantVelocityObserver {
     fn new(k: f32, initial_velocity: f32) -> Self {
-        Self { k, estimated_velocity: initial_velocity }
+        Self {
+            k,
+            estimated_velocity: initial_velocity,
+        }
     }
 
-    fn observe(&mut self, z: f32) -> f32{
+    fn observe(&mut self, z: f32) -> f32 {
         self.estimated_velocity = self.estimated_velocity + self.k * (z - self.estimated_velocity);
         self.estimated_velocity
     }
 }
-
 
 // leftChannel.start_duty_fade(0, 100, 1000).unwrap();
 // rightChannel.start_duty_fade(0, 100, 1000).unwrap();

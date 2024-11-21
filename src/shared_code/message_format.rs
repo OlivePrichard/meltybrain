@@ -26,15 +26,11 @@ macro_rules! discriminant_conversion {
 pub enum Message<'a> {
     ControllerData(u32, ControllerState, ControllerState),
     LogData(u32, &'a [u8]),
-    MissedLogData(u32),
-    ForgotLogData(u32),
 }
 
 discriminant_conversion!(Message<'a> {
     0 => Message::ControllerData(..) => Message::ControllerData(0, ControllerState::default(), ControllerState::default()),
-    1 => Message::LogData(..) => Message::LogData(0, &[]),
-    2 => Message::MissedLogData(..) => Message::MissedLogData(0),
-    3 => Message::ForgotLogData(..) => Message::ForgotLogData(0)
+    1 => Message::LogData(..) => Message::LogData(0, &[])
 });
 
 impl<'a> Message<'a> {
@@ -42,8 +38,6 @@ impl<'a> Message<'a> {
         match self {
             Self::ControllerData(..) => 36,
             Self::LogData(_, data) => 12 + data.len(),
-            Self::MissedLogData(..) => 12,
-            Self::ForgotLogData(..) => 12,
         }
     }
 
@@ -61,14 +55,6 @@ impl<'a> Message<'a> {
                 buffer[8..12].copy_from_slice(&id.to_le_bytes());
                 buffer[12..(12 + data.len())].copy_from_slice(data);
                 12 + data.len() as u32
-            }
-            Self::MissedLogData(id) => {
-                buffer[8..12].copy_from_slice(&id.to_le_bytes());
-                12
-            }
-            Self::ForgotLogData(id) => {
-                buffer[8..12].copy_from_slice(&id.to_le_bytes());
-                12
             }
         };
         buffer[4..8].copy_from_slice(&len.to_le_bytes());
@@ -105,8 +91,6 @@ impl<'a> Message<'a> {
                         return (buffer.len(), Some(Self::LogData(id, &buffer[12..])));
                     }
                 }
-                Some(Self::MissedLogData(..)) => Some(Self::MissedLogData(id)),
-                Some(Self::ForgotLogData(..)) => Some(Self::ForgotLogData(id)),
                 None => None,
             },
         )

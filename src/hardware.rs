@@ -1,4 +1,7 @@
-use core::fmt::{self, Display};
+use core::{
+    fmt::{self, Display},
+    ops::Sub,
+};
 
 use esp_hal::{
     gpio::{GpioPin, OutputPin},
@@ -174,4 +177,63 @@ impl<Pin: OutputPin + 'static> Motor<Pin> {
 
 fn power_to_duty_cycle(power: f32) -> u8 {
     (power.clamp(0., 100.) * 0.5 + 0.5) as u8 + 50
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct WheelAngle {
+    // this is only gonna work for positive angles, im not gonna fix it
+    turns: i32, // rotations
+    angle: f32, // radians
+}
+
+impl WheelAngle {
+    pub fn new(&self, angle: f32) -> Self {
+        use core::f32::consts::PI;
+
+        if angle < self.angle - PI {
+            Self {
+                turns: self.turns + 1,
+                angle,
+            }
+        } else if angle > self.angle + PI {
+            Self {
+                turns: self.turns - 1,
+                angle,
+            }
+        } else {
+            Self { angle, ..*self }
+        }
+    }
+}
+
+impl From<f32> for WheelAngle {
+    fn from(angle: f32) -> Self {
+        use core::f32::consts::TAU;
+
+        let turns = (angle / TAU) as i32;
+        let angle = angle - turns as f32 * TAU;
+
+        Self { turns, angle }
+    }
+}
+
+impl From<WheelAngle> for f32 {
+    fn from(angle: WheelAngle) -> f32 {
+        use core::f32::consts::TAU;
+
+        angle.angle + angle.turns as f32 * TAU
+    }
+}
+
+impl Sub for WheelAngle {
+    type Output = f32;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        use core::f32::consts::TAU;
+
+        let turns = self.turns - rhs.turns;
+        let angle = self.angle - rhs.angle;
+
+        turns as f32 * TAU + angle
+    }
 }

@@ -30,6 +30,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "as5600"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fdbe60b23e3ae22f4618c03b63aa884c4ca641830880f9d64b770d6467b4b7f"
+dependencies = [
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "num-derive",
+ "num-traits",
+]
+
+[[package]]
 name = "atomic-polyfill"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -901,6 +913,7 @@ checksum = "0ca88d725a0a943b096803bd34e73a4437208b6077654cc4ecb2947a5f91618d"
 name = "meltybrain"
 version = "0.1.0"
 dependencies = [
+ "as5600",
  "cfg-if",
  "embassy-executor",
  "embassy-futures",

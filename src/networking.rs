@@ -137,12 +137,7 @@ async fn send_packet(
                     index += message.to_le_bytes(&mut other_logs_buffer[index..]) as usize;
                 }
             }
-            Err(true) => {
-                let message = Message::ForgotLogData(id);
-                if other_logs_buffer.len() - index >= message.buffer_len() {
-                    index += message.to_le_bytes(&mut other_logs_buffer[index..]) as usize;
-                }
-            }
+            Err(true) => {}
             Err(false) => {
                 // do nothing
             }
@@ -174,15 +169,6 @@ async fn receive_packet(
             }
             Message::LogData(id, _) => {
                 log!(ReceivedLogData(id));
-            }
-            Message::MissedLogData(id) => {
-                if size < resend_requests.len() {
-                    resend_requests[size] = id;
-                    size += 1;
-                }
-            }
-            Message::ForgotLogData(id) => {
-                log!(ReceivedForgotLogData(id));
             }
         }
     }
