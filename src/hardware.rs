@@ -1,10 +1,12 @@
+#![allow(dead_code)]
+
 use core::{
     fmt::{self, Display},
     ops::Sub,
 };
 
 use esp_hal::{
-    gpio::{GpioPin, OutputPin},
+    gpio::OutputPin,
     i2c::{Error, I2c},
     ledc::{
         channel::{self, Channel},
@@ -112,9 +114,9 @@ impl<'a> Accelerometer {
         let y_offset = convert_to_offset(y_calibration_offset);
         let z_offset = convert_to_offset(z_calibration_offset - 9.80665);
 
-        let x_offset_byte = u8::from_ne_bytes(x_offset.to_ne_bytes());
-        let y_offset_byte = u8::from_ne_bytes(y_offset.to_ne_bytes());
-        let z_offset_byte = u8::from_ne_bytes(z_offset.to_ne_bytes());
+        let _x_offset_byte = u8::from_ne_bytes(x_offset.to_ne_bytes());
+        let _y_offset_byte = u8::from_ne_bytes(y_offset.to_ne_bytes());
+        let _z_offset_byte = u8::from_ne_bytes(z_offset.to_ne_bytes());
 
         // self.i2c.write(0x53, &[0x1E, x_offset_byte]).await?;
         // self.i2c.write(0x53, &[0x1F, y_offset_byte]).await?;

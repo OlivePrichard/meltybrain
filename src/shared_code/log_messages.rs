@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use core::time::Duration;
-use postcard::{from_bytes_cobs, to_slice_cobs};
+use postcard::{to_slice, from_bytes};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -48,13 +48,28 @@ impl Log {
         }
     }
 
-    pub fn to_bytes(&self, time: Duration, buffer: &mut [u8]) -> Option<usize> {
-        let res = to_slice_cobs(&LogWithTime { time, log: *self }, buffer);
-        res.ok().map(|slice| slice.len())
+    pub fn to_bytes(&self, time_us: u32, buffer: &mut [u8]) -> Option<usize> {
+        if buffer.len() < 6 {
+            return None;
+        }
+        buffer[1..5].copy_from_slice(&time_us.to_le_bytes());
+        match to_slice(self, &mut buffer[6..]) {
+            Ok(slice) => {
+                let size = slice.len();
+                buffer[0] = size as u8;
+                Some(size + 5)
+            }
+            Err(_) => None,
+        }
     }
 
-    pub fn from_bytes(buffer: &mut [u8]) -> Option<LogWithTime> {
-        from_bytes_cobs(buffer).ok()
+    pub fn from_bytes(buffer: &[u8]) -> Option<LogWithTime> {
+        if buffer.len() < 6 {
+            return None;
+        }
+        let micros = u32::from_le_bytes([buffer[1], buffer[2], buffer[3], buffer[4]]);
+        let time = Duration::from_micros(micros as u64);
+        from_bytes(&buffer[5..]).ok().map(|log| LogWithTime { time, log })
     }
 }
 
@@ -64,45 +79,45 @@ pub struct LogWithTime {
     pub log: Log,
 }
 
-pub struct LogIterator<'a> {
-    buffer: &'a mut [u8],
-    index: usize,
-}
+// pub struct LogIterator<'a> {
+//     buffer: &'a mut [u8],
+//     index: usize,
+// }
 
-impl<'a> LogIterator<'a> {
-    pub fn new(buffer: &'a mut [u8]) -> Self {
-        // println!("New Log Iterator: {:02X?}", buffer);
-        Self { buffer, index: 0 }
-    }
-}
+// impl<'a> LogIterator<'a> {
+//     pub fn new(buffer: &'a mut [u8]) -> Self {
+//         // println!("New Log Iterator: {:02X?}", buffer);
+//         Self { buffer, index: 0 }
+//     }
+// }
 
-impl<'a> Iterator for LogIterator<'a> {
-    type Item = LogWithTime;
+// impl<'a> Iterator for LogIterator<'a> {
+//     type Item = LogWithTime;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if self.buffer.len() == self.index {
-                return None;
-            }
-            let Some(boundary) = self
-                .buffer
-                .iter()
-                .skip(self.index)
-                .position(|&b| b == 0)
-                .map(|i| i + 1 + self.index)
-            else {
-                self.index = self.buffer.len();
-                return None;
-            };
-            let data = &mut self.buffer[self.index..boundary];
-            self.index = boundary;
-            if let Some(log_message) = Log::from_bytes(data) {
-                // println!("Got good log message {:?} from bytes: {:02X?}", log_message, data);
-                return Some(log_message);
-            } else {
-                #[cfg(not(target_os = "none"))]
-                println!("Got nonsense log message: {:02X?}", data);
-            }
-        }
-    }
-}
+//     fn next(&mut self) -> Option<Self::Item> {
+//         loop {
+//             if self.buffer.len() == self.index {
+//                 return None;
+//             }
+//             let Some(boundary) = self
+//                 .buffer
+//                 .iter()
+//                 .skip(self.index)
+//                 .position(|&b| b == 0)
+//                 .map(|i| i + 1 + self.index)
+//             else {
+//                 self.index = self.buffer.len();
+//                 return None;
+//             };
+//             let data = &mut self.buffer[self.index..boundary];
+//             self.index = boundary;
+//             if let Some(log_message) = Log::from_bytes(data) {
+//                 // println!("Got good log message {:?} from bytes: {:02X?}", log_message, data);
+//                 return Some(log_message);
+//             } else {
+//                 #[cfg(not(target_os = "none"))]
+//                 println!("Got nonsense log message: {:02X?}", data);
+//             }
+//         }
+//     }
+// }

@@ -3,16 +3,17 @@ use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use esp_hal::{gpio::GpioPin, i2c::I2c, peripherals::I2C0, Async};
+// use esp_println::println;
 
 use crate::{
     hardware::{Accelerometer, Motor, WheelAngle},
     logging::log,
-    math, mk_static,
+    math,
     shared_code::controller::{Button, ControllerState},
 };
 
 pub async fn control_logic(
-    spawner: Spawner,
+    _spawner: Spawner,
     controllers: &'static Mutex<NoopRawMutex, (ControllerState, ControllerState)>,
     armed: &'static Mutex<NoopRawMutex, bool>,
     mut left_motor: Motor<GpioPin<21>>,
@@ -31,12 +32,12 @@ pub async fn control_logic(
 
     log!(MotorsInitialized);
 
-    let state_vector = &*mk_static!(
-        Mutex<NoopRawMutex, StateVector>, Mutex::new(StateVector {
-        time: Instant::now(),
-        theta: 0.0,
-        omega: 0.0,
-    }));
+    // let state_vector = &*mk_static!(
+    //     Mutex<NoopRawMutex, StateVector>, Mutex::new(StateVector {
+    //     time: Instant::now(),
+    //     theta: 0.0,
+    //     omega: 0.0,
+    // }));
 
     // spawner
     //     .spawn(accelerometer_data(state_vector, accelerometer))
@@ -44,7 +45,7 @@ pub async fn control_logic(
     motor_control(controllers, armed, left_motor, right_motor, encoder).await;
 }
 
-#[embassy_executor::task]
+// #[embassy_executor::task]
 async fn accelerometer_data(
     state_vector: &'static Mutex<NoopRawMutex, StateVector>,
     mut accelerometer: Accelerometer,
@@ -53,7 +54,7 @@ async fn accelerometer_data(
 
     let period = Duration::from_hz(800);
 
-    let mut offset_calibration = 0.;
+    let mut _offset_calibration = 0.;
     const SAMPLES: usize = 800 * 5;
 
     for _ in 0..SAMPLES {
@@ -63,17 +64,17 @@ async fn accelerometer_data(
             continue;
         };
 
-        offset_calibration += data.y;
+        _offset_calibration += data.y;
     }
-    let offset = offset_calibration / SAMPLES as f32;
+    // let offset = offset_calibration / SAMPLES as f32;
 
-    let mut observer = ConstantVelocityObserver::new(0.09, 0.);
-    let mut omega_offset = 100;
+    // let mut observer = ConstantVelocityObserver::new(0.09, 0.);
+    // let mut omega_offset = 100;
 
     loop {
         Timer::after(period).await;
 
-        let Ok(data) = accelerometer.read_all().await else {
+        let Ok(_data) = accelerometer.read_all().await else {
             continue;
         };
         let time = Instant::now();
@@ -82,7 +83,7 @@ async fn accelerometer_data(
         // a = r * omega^2
         // omega = 1 / sqrt(r / a)
         // println!("{}", data.y - offset);
-        let omega_raw = math::sqrt(math::abs(data.y - offset) / ACCELEROMETER_POSITION);
+        // let omega_raw = math::sqrt(math::abs(data.y - offset) / ACCELEROMETER_POSITION);
         let omega = 100.0; // observer.observe(omega_raw);
 
         let mut state = state_vector.lock().await;
@@ -188,8 +189,9 @@ async fn motor_control(
         // println!("Angle: {}", math::rad2deg(state.theta));
 
         // println!("{:.8}\t{:.8}", left_power, right_power);
-        left_motor.set_power(left_power).unwrap();
-        right_motor.set_power(right_power).unwrap();
+
+        // left_motor.set_power(left_power).unwrap();
+        // right_motor.set_power(right_power).unwrap();
     }
 }
 
