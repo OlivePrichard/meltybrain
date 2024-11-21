@@ -9,6 +9,7 @@ mod networking;
 mod shared_code;
 mod watchdog;
 
+use as5600::As5600;
 use control_logic::control_logic;
 use embassy_executor::Spawner;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
@@ -170,6 +171,10 @@ async fn main(spawner: Spawner) -> ! {
 
     let i2c0: I2c<'static, I2C0, Async> =
         I2c::new_async(peripherals.I2C0, io.pins.gpio6, io.pins.gpio7, 400.kHz());
+
+    let mut encoder = As5600::new(i2c0);
+    let angle = encoder.angle().unwrap();
+    println!("Encoder angle: {}", angle);
     let mut accelerometer = Accelerometer::new(i2c0);
     accelerometer.init().await.unwrap();
 
