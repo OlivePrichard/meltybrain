@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::shared_code::controller::ControllerState;
 
 macro_rules! discriminant_conversion {

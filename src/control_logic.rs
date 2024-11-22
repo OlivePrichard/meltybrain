@@ -2,7 +2,8 @@ use as5600::asynch::As5600;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Instant, Ticker};
-use esp_hal::{gpio::GpioPin, i2c::I2c, peripherals::I2C0, Async};
+use esp_hal::{gpio::GpioPin, i2c::I2c, ledc::{channel::Channel, LowSpeed}, peripherals::I2C0, prelude::_esp_hal_ledc_channel_ChannelIFace, Async};
+use esp_println::println;
 // use esp_println::println;
 
 use crate::{
@@ -20,6 +21,7 @@ pub async fn control_logic(
     mut right_motor: Motor<GpioPin<5>>,
     // accelerometer: Accelerometer,
     encoder: As5600<I2c<'static, I2C0, Async>>,
+    led: Channel<'static, LowSpeed, GpioPin<10>>,
 ) -> ! {
     log!(InitializingMotors);
 
@@ -42,7 +44,7 @@ pub async fn control_logic(
     // spawner
     //     .spawn(accelerometer_data(state_vector, accelerometer))
     //     .ok();
-    motor_control(controllers, armed, left_motor, right_motor, encoder).await;
+    motor_control(controllers, armed, left_motor, right_motor, encoder, led).await;
 }
 
 // #[embassy_executor::task]
@@ -106,21 +108,30 @@ async fn motor_control(
     mut right_motor: Motor<GpioPin<5>>,
     // state_vector: &Mutex<NoopRawMutex, StateVector>,
     mut encoder: As5600<I2c<'static, I2C0, Async>>,
+    mut led: Channel<'static, LowSpeed, GpioPin<10>>,
 ) -> ! {
+    use core::f32::consts::TAU;
+
     let dt = Duration::from_hz(2000);
     let mut ticker = Ticker::every(dt);
 
-    let spin_power = 10.;
-    let move_power = 5.;
+    let spin_power = 50.;
+    let move_power = 30.;
+    let mut movement_power = 0.;
 
-    let mut measurment_buffer = [(Instant::now(), WheelAngle::default()); 400];
-    let mut measurment_index = 0;
+    // let mut measurment_buffer = [(Instant::now(), WheelAngle::default()); 400];
+    // let mut measurment_index = 0;
+
+    let mut previous_time = Instant::now();
+    let mut previous_angle = WheelAngle::default();
 
     let mut theta = 0.;
 
     const ANGLE_CONVERSION: f32 = core::f32::consts::TAU / 4096.;
-    const TRACK_WIDTH: f32 = 120. * 1e-3;
-    const WHEEL_DIAMETER: f32 = 30. * 1e-3;
+    const TRACK_WIDTH: f32 = 114. * 1e-3;
+    const WHEEL_DIAMETER: f32 = 41. * 1e-3;
+
+    const LED_ANGLE: f32 = math::deg2rad(10.);
 
     loop {
         ticker.next().await;
@@ -134,6 +145,8 @@ async fn motor_control(
         let (primary_controller, _secondary_controller) = { *controllers.lock().await };
         // let state = { state_vector.lock().await.predict(Instant::now()) };
 
+        let encoder_correction = spin_power / (spin_power + 0.5 * movement_power);
+
         let mut left_power = 0.;
         let mut right_power = 0.;
 
@@ -142,35 +155,53 @@ async fn motor_control(
             right_power += spin_power;
         }
 
-        let Ok(angle) = encoder.angle().await else { continue; };
+        let Ok(angle) = encoder.angle().await else {
+            continue;
+        };
         let current_time = Instant::now();
         let radians = angle as f32 * ANGLE_CONVERSION;
-        let mut earliest_measurement_index = measurment_index + 1;
-        if earliest_measurement_index >= measurment_buffer.len() {
-            earliest_measurement_index = 0;
-        }
-        let (earliest_time, earliest_angle) = measurment_buffer[earliest_measurement_index];
-        let (latest_time, latest_angle) = measurment_buffer[measurment_index];
-        let current_angle = latest_angle.new(radians);
-        let average_delta_angle = current_angle - earliest_angle;
-        let average_delta_time = f32_seconds(current_time - earliest_time);
-        let omega = average_delta_angle / average_delta_time * WHEEL_DIAMETER / TRACK_WIDTH;
-        let dt = f32_seconds(current_time - latest_time);
+        // let mut earliest_measurement_index = measurment_index + 1;
+        // if earliest_measurement_index >= measurment_buffer.len() {
+        //     earliest_measurement_index = 0;
+        // }
+        // let (earliest_time, earliest_angle) = measurment_buffer[earliest_measurement_index];
+        // let (latest_time, latest_angle) = measurment_buffer[measurment_index];
+        let current_angle = previous_angle.new(radians);
+        let average_delta_angle = current_angle - previous_angle;
+        let average_delta_time = f32_seconds(current_time - previous_time);
+        let omega = encoder_correction * average_delta_angle / average_delta_time * WHEEL_DIAMETER / TRACK_WIDTH;
+        let dt = f32_seconds(current_time - previous_time);
         theta += omega * dt;
-        measurment_buffer[earliest_measurement_index] = (current_time, current_angle);
-        measurment_index = earliest_measurement_index;
+        while theta >= TAU { theta -= TAU; }
+        // measurment_buffer[earliest_measurement_index] = (current_time, current_angle);
+        // measurment_index = earliest_measurement_index;
+        previous_angle = current_angle;
+        previous_time = current_time;
+        let correction = dt * omega;
 
         let stick_x = primary_controller.left_stick.get_x();
         let stick_y = primary_controller.left_stick.get_y();
         let magnitude = math::sqrt(stick_x * stick_x + stick_y * stick_y);
+
         if magnitude > 0.2 {
-            let correction = dt * omega;
             let stick_angle = math::atan2(stick_y, stick_x);
             let angle_error = theta - stick_angle;
-            let movement_power = move_power * math::cos(angle_error + correction);
+            movement_power = magnitude * move_power * math::cos(angle_error + correction);
             left_power -= movement_power;
             right_power += movement_power;
         }
+        else {
+            movement_power = 0.;
+        }
+
+        let mut average_theta = theta + correction * 0.5;
+        while average_theta >= TAU { average_theta -= TAU; }
+        if average_theta < LED_ANGLE || average_theta > TAU - LED_ANGLE {
+            led.set_duty(100).unwrap();
+        } else {
+            led.set_duty(0).unwrap();
+        }
+
         // let angle_correction = f32_seconds(dt) * state.omega;
         // let stick_x = primary_controller.left_stick.get_x();
         // let stick_y = primary_controller.left_stick.get_y();

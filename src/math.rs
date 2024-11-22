@@ -8,7 +8,7 @@ pub fn rad2deg(rad: f32) -> f32 {
 }
 
 #[inline]
-pub fn deg2rad(rad: f32) -> f32 {
+pub const fn deg2rad(rad: f32) -> f32 {
     use core::f32::consts::PI;
 
     rad * PI / 180.

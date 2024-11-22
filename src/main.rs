@@ -133,6 +133,7 @@ async fn main(spawner: Spawner) -> ! {
 
     let left_motor_pin = io.pins.gpio21;
     let right_motor_pin = io.pins.gpio5;
+    let led_pin = io.pins.gpio10;
 
     let mut ledc = Ledc::new(peripherals.LEDC);
     ledc.set_global_slow_clock(esp_hal::ledc::LSGlobalClkSource::APBClk);
@@ -157,8 +158,16 @@ async fn main(spawner: Spawner) -> ! {
             pin_config: channel::config::PinConfig::PushPull,
         })
         .unwrap();
-    let mut right_motor_channel = ledc.get_channel(channel::Number::Channel0, right_motor_pin);
+    let mut right_motor_channel = ledc.get_channel(channel::Number::Channel1, right_motor_pin);
     right_motor_channel
+        .configure(channel::config::Config {
+            timer: lstimer0,
+            duty_pct: 10,
+            pin_config: channel::config::PinConfig::PushPull,
+        })
+        .unwrap();
+    let mut led_channel = ledc.get_channel(channel::Number::Channel2, led_pin);
+    led_channel
         .configure(channel::config::Config {
             timer: lstimer0,
             duty_pct: 10,
@@ -253,6 +262,7 @@ async fn main(spawner: Spawner) -> ! {
         right_motor,
         // accelerometer,
         encoder,
+        led_channel,
     )
     .await;
 }

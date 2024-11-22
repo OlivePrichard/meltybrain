@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use core::time::Duration;
-use postcard::{to_slice, from_bytes};
+use postcard::{from_bytes, to_slice};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -69,7 +69,9 @@ impl Log {
         }
         let micros = u32::from_le_bytes([buffer[1], buffer[2], buffer[3], buffer[4]]);
         let time = Duration::from_micros(micros as u64);
-        from_bytes(&buffer[5..]).ok().map(|log| LogWithTime { time, log })
+        from_bytes(&buffer[5..])
+            .ok()
+            .map(|log| LogWithTime { time, log })
     }
 }
 
