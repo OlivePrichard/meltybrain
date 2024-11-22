@@ -15,6 +15,21 @@ pub const fn deg2rad(rad: f32) -> f32 {
 }
 
 #[inline]
+pub fn wrap_angle(mut angle: f32) -> f32 {
+    use core::f32::consts::{PI, TAU};
+
+    while angle < -PI {
+        angle += TAU;
+    }
+
+    while angle >= PI {
+        angle -= TAU;
+    }
+
+    angle
+}
+
+#[inline]
 pub fn sin(mut x: f32) -> f32 {
     use core::f32::consts::{FRAC_PI_4, PI};
 
@@ -142,6 +157,11 @@ pub fn sqrt(x: f32) -> f32 {
 #[inline]
 pub fn abs(x: f32) -> f32 {
     f32::from_bits(x.to_bits() & 0x7F_FF_FF_FF)
+}
+
+#[inline]
+pub fn sign(mag: f32, sign: f32) -> f32 {
+    f32::from_bits((mag.to_bits() & 0x7F_FF_FF_FF) | (sign.to_bits() & 0x80_00_00_00))
 }
 
 #[inline]

@@ -110,14 +110,21 @@ async fn motor_control(
     mut encoder: As5600<I2c<'static, I2C0, Async>>,
     mut led: Channel<'static, LowSpeed, GpioPin<10>>,
 ) -> ! {
-    use core::f32::consts::TAU;
-
     let dt = Duration::from_hz(2000);
     let mut ticker = Ticker::every(dt);
 
-    let spin_power = 50.;
-    let move_power = 30.;
+    let mut spin_power = 30.; // needs to be above 22% as of 4:44 pm on friday
+    let move_power = 4.;
     let mut movement_power = 0.;
+    let mut led_position = math::deg2rad(-90.);
+    const LED_APPARENT_POSITION: f32 = math::deg2rad(133. - 90.);
+    const LED_ADJUST_SPEED: f32 = math::deg2rad(240.);
+    const LED_JUMP_ADJUST_VALUE: f32 = math::deg2rad(60.);
+    let mut prev_left_bumper = false;
+    let mut prev_right_bumper = false;
+
+    let mut prev_up = false;
+    let mut prev_down = false;
 
     // let mut measurment_buffer = [(Instant::now(), WheelAngle::default()); 400];
     // let mut measurment_index = 0;
@@ -142,15 +149,26 @@ async fn motor_control(
             continue;
         }
 
-        let (primary_controller, _secondary_controller) = { *controllers.lock().await };
+        let (primary_controller, secondary_controller) = { *controllers.lock().await };
         // let state = { state_vector.lock().await.predict(Instant::now()) };
 
-        let encoder_correction = spin_power / (spin_power + 0.5 * movement_power);
+        let up = primary_controller.get(Button::Up);
+        let down = primary_controller.get(Button::Down);
+        if up && !prev_up {
+            spin_power += 2.;
+        }
+        if down && ! prev_down {
+            spin_power -= 2.;
+        }
+        prev_up = up;
+        prev_down = down;
+
+        let encoder_correction = spin_power / (spin_power + movement_power);
 
         let mut left_power = 0.;
         let mut right_power = 0.;
 
-        if primary_controller.get(Button::LeftBumper) {
+        if primary_controller.left_trigger >= 32  {
             left_power += spin_power;
             right_power += spin_power;
         }
@@ -172,7 +190,7 @@ async fn motor_control(
         let omega = encoder_correction * average_delta_angle / average_delta_time * WHEEL_DIAMETER / TRACK_WIDTH;
         let dt = f32_seconds(current_time - previous_time);
         theta += omega * dt;
-        while theta >= TAU { theta -= TAU; }
+        theta = math::wrap_angle(theta);
         // measurment_buffer[earliest_measurement_index] = (current_time, current_angle);
         // measurment_index = earliest_measurement_index;
         previous_angle = current_angle;
@@ -181,25 +199,43 @@ async fn motor_control(
 
         let stick_x = primary_controller.left_stick.get_x();
         let stick_y = primary_controller.left_stick.get_y();
-        let magnitude = math::sqrt(stick_x * stick_x + stick_y * stick_y);
+        let magnitude = math::sqrt(stick_x * stick_x + stick_y * stick_y).clamp(0., 1.);
+
+        let led_stick_x = secondary_controller.right_stick.get_x();
+        led_position += led_stick_x * LED_ADJUST_SPEED * dt;
+
+        let left_bumper = primary_controller.get(Button::LeftBumper);
+        let right_bumper = primary_controller.get(Button::RightBumper);
+        if left_bumper && !prev_left_bumper {
+            led_position -= LED_JUMP_ADJUST_VALUE;
+        }
+        if right_bumper && !prev_right_bumper {
+            led_position += LED_JUMP_ADJUST_VALUE;
+        }
+        prev_left_bumper = left_bumper;
+        prev_right_bumper = right_bumper;
+
+        led_position = math::wrap_angle(led_position);
+
+        let average_theta = math::wrap_angle(theta + correction * 0.5);
+        let led_difference = math::wrap_angle(average_theta - led_position);
+        if math::abs(led_difference) < LED_ANGLE {
+            led.set_duty(100).unwrap();
+        } else {
+            led.set_duty(0).unwrap();
+        }
+
+        let led_correction = math::wrap_angle(led_position - LED_APPARENT_POSITION);
 
         if magnitude > 0.2 {
             let stick_angle = math::atan2(stick_y, stick_x);
             let angle_error = theta - stick_angle;
-            movement_power = magnitude * move_power * math::cos(angle_error + correction);
+            movement_power = magnitude * move_power * math::cos(angle_error + correction - led_correction);
             left_power -= movement_power;
             right_power += movement_power;
         }
         else {
             movement_power = 0.;
-        }
-
-        let mut average_theta = theta + correction * 0.5;
-        while average_theta >= TAU { average_theta -= TAU; }
-        if average_theta < LED_ANGLE || average_theta > TAU - LED_ANGLE {
-            led.set_duty(100).unwrap();
-        } else {
-            led.set_duty(0).unwrap();
         }
 
         // let angle_correction = f32_seconds(dt) * state.omega;
