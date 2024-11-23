@@ -198,7 +198,7 @@ async fn motor_control(
             continue;
         };
         let current_time = Instant::now();
-        let radians = angle as f32 * ANGLE_CONVERSION;
+        let radians = math::deg2rad(360.) - angle as f32 * ANGLE_CONVERSION;
         // let mut earliest_measurement_index = measurment_index + 1;
         // if earliest_measurement_index >= measurment_buffer.len() {
         //     earliest_measurement_index = 0;
@@ -219,20 +219,20 @@ async fn motor_control(
         previous_time = current_time;
         let correction = dt * omega;
 
-        let stick_x = primary_controller.left_stick.get_x();
+        let stick_x = -primary_controller.left_stick.get_x();
         let stick_y = primary_controller.left_stick.get_y();
         let magnitude = math::sqrt(stick_x * stick_x + stick_y * stick_y).clamp(0., 1.);
 
-        let led_stick_x = secondary_controller.right_stick.get_x();
+        let led_stick_x = -secondary_controller.right_stick.get_x();
         led_position += led_stick_x * LED_ADJUST_SPEED * dt;
 
         let left_bumper = secondary_controller.get(Button::LeftBumper);
         let right_bumper = secondary_controller.get(Button::RightBumper);
         if left_bumper && !prev_left_bumper {
-            led_position -= LED_JUMP_ADJUST_VALUE;
+            led_position += LED_JUMP_ADJUST_VALUE;
         }
         if right_bumper && !prev_right_bumper {
-            led_position += LED_JUMP_ADJUST_VALUE;
+            led_position -= LED_JUMP_ADJUST_VALUE;
         }
         prev_left_bumper = left_bumper;
         prev_right_bumper = right_bumper;
