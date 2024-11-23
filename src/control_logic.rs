@@ -117,8 +117,8 @@ async fn motor_control(
     let dt = Duration::from_hz(2000);
     let mut ticker = Ticker::every(dt);
 
-    let mut spin_power = 26.; // needs to be above 22% as of 4:44 pm on friday
-    let move_power = 4.;
+    let mut spin_power = 30.; // needs to be above 22% as of 4:44 pm on friday
+    let move_power = 8.;
     let mut movement_power = 0.;
     let mut led_position = math::deg2rad(-90.);
     const LED_APPARENT_POSITION: f32 = math::deg2rad(133. - 90.);
