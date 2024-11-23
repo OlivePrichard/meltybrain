@@ -28,6 +28,7 @@ use esp_hal::{
     timer::timg::TimerGroup,
     Async,
 };
+use esp_println::println;
 // use hardware::Accelerometer;
 // use esp_println::println;
 use esp_wifi::{
@@ -104,6 +105,7 @@ async fn watchdog_task(
     loop {
         watchdog.run().await;
         log!(WatchdogTimeout);
+        println!("Timeout");
         {
             let mut lock = armed.lock().await;
             *lock = false;
@@ -112,6 +114,7 @@ async fn watchdog_task(
             Timer::after(delay).await;
         }
         log!(ConnectionRestored);
+        println!("Back online");
         {
             let mut lock = armed.lock().await;
             *lock = true;
