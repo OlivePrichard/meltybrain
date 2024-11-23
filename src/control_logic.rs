@@ -1,7 +1,7 @@
 use as5600::asynch::As5600;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
-use embassy_time::{Duration, Instant, Ticker};
+use embassy_time::{Duration, Instant, Ticker, Timer};
 use esp_hal::{
     gpio::GpioPin,
     i2c::I2c,
@@ -14,20 +14,17 @@ use esp_println::println;
 // use esp_println::println;
 
 use crate::{
-    hardware::{Motor, WheelAngle},
-    logging::log,
-    math,
-    shared_code::controller::{Button, ControllerState},
+    hardware::{Accelerometer, Motor, WheelAngle}, logging::log, math, mk_static, shared_code::controller::{Button, ControllerState}
 };
 
 pub async fn control_logic(
-    _spawner: Spawner,
+    spawner: Spawner,
     controllers: &'static Mutex<NoopRawMutex, (ControllerState, ControllerState)>,
     armed: &'static Mutex<NoopRawMutex, bool>,
     mut left_motor: Motor<GpioPin<21>>,
     mut right_motor: Motor<GpioPin<5>>,
-    // accelerometer: Accelerometer,
-    encoder: As5600<I2c<'static, I2C0, Async>>,
+    accelerometer: Accelerometer,
+    // encoder: As5600<I2c<'static, I2C0, Async>>,
     led: Channel<'static, LowSpeed, GpioPin<10>>,
 ) -> ! {
     log!(InitializingMotors);
@@ -41,68 +38,68 @@ pub async fn control_logic(
 
     log!(MotorsInitialized);
 
-    // let state_vector = &*mk_static!(
-    //     Mutex<NoopRawMutex, StateVector>, Mutex::new(StateVector {
-    //     time: Instant::now(),
-    //     theta: 0.0,
-    //     omega: 0.0,
-    // }));
+    let state_vector = &*mk_static!(
+        Mutex<NoopRawMutex, StateVector>, Mutex::new(StateVector {
+        time: Instant::now(),
+        theta: 0.0,
+        omega: 0.0,
+    }));
 
-    // spawner
-    //     .spawn(accelerometer_data(state_vector, accelerometer))
-    //     .ok();
-    motor_control(controllers, armed, left_motor, right_motor, encoder, led).await;
+    spawner
+        .spawn(accelerometer_data(state_vector, accelerometer))
+        .ok();
+    motor_control(controllers, armed, left_motor, right_motor, state_vector, led).await;
 }
 
-// #[embassy_executor::task]
-// async fn accelerometer_data(
-//     state_vector: &'static Mutex<NoopRawMutex, StateVector>,
-//     mut accelerometer: Accelerometer,
-// ) -> ! {
-//     const ACCELEROMETER_POSITION: f32 = 5.0 * 1.0e-3; // 6mm
+#[embassy_executor::task]
+async fn accelerometer_data(
+    state_vector: &'static Mutex<NoopRawMutex, StateVector>,
+    mut accelerometer: Accelerometer,
+) -> ! {
+    const ACCELEROMETER_POSITION: f32 = 5.0 * 1.0e-3; // 6mm
 
-//     let period = Duration::from_hz(800);
+    let period = Duration::from_hz(800);
 
-//     let mut _offset_calibration = 0.;
-//     const SAMPLES: usize = 800 * 5;
+    let mut offset_calibration = 0.;
+    const SAMPLES: usize = 800 * 5;
 
-//     for _ in 0..SAMPLES {
-//         Timer::after(period).await;
+    for _ in 0..SAMPLES {
+        Timer::after(period).await;
 
-//         let Ok(data) = accelerometer.read_all().await else {
-//             continue;
-//         };
+        let Ok(data) = accelerometer.read_all().await else {
+            continue;
+        };
 
-//         _offset_calibration += data.y;
-//     }
-//     // let offset = offset_calibration / SAMPLES as f32;
+        offset_calibration += data.y;
+    }
+    let offset = offset_calibration / SAMPLES as f32;
 
-//     // let mut observer = ConstantVelocityObserver::new(0.09, 0.);
-//     // let mut omega_offset = 100;
+    // let mut observer = ConstantVelocityObserver::new(0.09, 0.);
+    // let mut omega_offset = 100;
 
-//     loop {
-//         Timer::after(period).await;
+    loop {
+        Timer::after(period).await;
 
-//         let Ok(_data) = accelerometer.read_all().await else {
-//             continue;
-//         };
-//         let time = Instant::now();
-//         // println!("{}", data);
+        let Ok(data) = accelerometer.read_all().await else {
+            continue;
+        };
+        let time = Instant::now();
+        // println!("{}", data);
 
-//         // a = r * omega^2
-//         // omega = 1 / sqrt(r / a)
-//         // println!("{}", data.y - offset);
-//         // let omega_raw = math::sqrt(math::abs(data.y - offset) / ACCELEROMETER_POSITION);
-//         let omega = 100.0; // observer.observe(omega_raw);
+        // a = r * omega^2
+        // omega = 1 / sqrt(r / a)
+        // println!("{}", data.y - offset);
+        let omega = math::sqrt(math::abs(data.y - offset) / ACCELEROMETER_POSITION);
+        // let omega = 100.0; // observer.observe(omega_raw);
 
-//         let mut state = state_vector.lock().await;
-//         // let average_omega = (state.omega + omega) * 0.5;
-//         let dt = time - state.time;
-//         let dtheta = omega * f32_seconds(dt);
-//         let theta = state.theta + dtheta;
-//         *state = StateVector { time, theta, omega };
-//     }
-// }
+        let mut state = state_vector.lock().await;
+        // let average_omega = (state.omega + omega) * 0.5;
+        let dt = time - state.time;
+        let dtheta = omega * f32_seconds(dt);
+        let theta = state.theta + dtheta;
+        *state = StateVector { time, theta, omega };
+    }
+}
 
 // fn encoder_data(encoder: As5600<I2C0>, state_vector: &'static Mutex<NoopRawMutex, StateVector>) -> ! {
 //     let period = Duration::from_hz(2000);
@@ -113,8 +110,8 @@ async fn motor_control(
     armed: &Mutex<NoopRawMutex, bool>,
     mut left_motor: Motor<GpioPin<21>>,
     mut right_motor: Motor<GpioPin<5>>,
-    // state_vector: &Mutex<NoopRawMutex, StateVector>,
-    mut encoder: As5600<I2c<'static, I2C0, Async>>,
+    state_vector: &Mutex<NoopRawMutex, StateVector>,
+    // mut encoder: As5600<I2c<'static, I2C0, Async>>,
     mut led: Channel<'static, LowSpeed, GpioPin<10>>,
 ) -> ! {
     let dt = Duration::from_hz(2000);
@@ -159,7 +156,7 @@ async fn motor_control(
         }
 
         let (primary_controller, secondary_controller) = { *controllers.lock().await };
-        // let state = { state_vector.lock().await.predict(Instant::now()) };
+        let state = { state_vector.lock().await.predict(Instant::now()) };
 
         let up = primary_controller.get(Button::Up);
         let down = primary_controller.get(Button::Down);
@@ -182,11 +179,12 @@ async fn motor_control(
             right_power += spin_power;
         }
 
-        let Ok(angle) = encoder.angle().await else {
-            continue;
-        };
+        // let Ok(angle) = encoder.angle().await else {
+        //     continue;
+        // };
+
         let current_time = Instant::now();
-        let radians = angle as f32 * ANGLE_CONVERSION;
+        let radians = state.theta;
         // let mut earliest_measurement_index = measurment_index + 1;
         // if earliest_measurement_index >= measurment_buffer.len() {
         //     earliest_measurement_index = 0;
@@ -215,20 +213,20 @@ async fn motor_control(
             false
         };
 
-        if !in_bang_zone {
-            let omega_temp = encoder_correction * wheel_delta_angle / average_delta_time
-                * WHEEL_DIAMETER
-                / TRACK_WIDTH;
-            previous_omega = omega_temp;
-        }
-        let omega = previous_omega;
-        theta += omega * dt;
-        theta = math::wrap_angle(theta);
+        // if !in_bang_zone {
+        //     let omega_temp = encoder_correction * wheel_delta_angle / average_delta_time
+        //         * WHEEL_DIAMETER
+        //         / TRACK_WIDTH;
+        //     previous_omega = omega_temp;
+        // }
+        // let omega = previous_omega;
+        // theta += omega * dt;
+        // theta = math::wrap_angle(theta);
         // measurment_buffer[earliest_measurement_index] = (current_time, current_angle);
         // measurment_index = earliest_measurement_index;
         previous_angle = current_wheel_angle;
         previous_time = current_time;
-        let correction = dt * omega;
+        let correction = dt * state.omega;
 
         let led_stick_x = secondary_controller.right_stick.get_x();
         led_position += led_stick_x * LED_ADJUST_SPEED * dt;
@@ -320,14 +318,14 @@ fn f32_seconds(duration: Duration) -> f32 {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct _StateVector {
+struct StateVector {
     time: Instant,
     theta: f32, // radians
     omega: f32, // radians per second
 }
 
-impl _StateVector {
-    fn _predict(&self, current_time: Instant) -> Self {
+impl StateVector {
+    fn predict(&self, current_time: Instant) -> Self {
         let dt = current_time - self.time;
         let theta = self.theta + self.omega * f32_seconds(dt);
         let omega = self.omega;
@@ -352,7 +350,7 @@ impl LowPassFilter {
         }
     }
 
-    fn _filter(&mut self, value: f32) -> f32 {
+    fn filter(&mut self, value: f32) -> f32 {
         self._last_value = self._last_value * self._alpha + value * (1. - self._alpha);
         self._last_value
     }

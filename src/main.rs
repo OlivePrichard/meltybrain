@@ -39,6 +39,7 @@ use esp_wifi::{
     EspWifiInitFor,
 };
 
+use hardware::Accelerometer;
 use logging::log;
 use networking::handle_networking;
 use shared_code::controller::ControllerState;
@@ -180,10 +181,10 @@ async fn main(spawner: Spawner) -> ! {
 
     let i2c0: I2c<'static, I2C0, Async> =
         I2c::new_async(peripherals.I2C0, io.pins.gpio6, io.pins.gpio7, 400.kHz());
-    // let mut accelerometer = Accelerometer::new(&i2c0);
-    // accelerometer.init().await.unwrap();
+    let mut accelerometer = Accelerometer::new(i2c0);
+    accelerometer.init().await.unwrap();
 
-    let encoder: As5600<I2c<'_, I2C0, Async>> = As5600::new(i2c0);
+    // let encoder: As5600<I2c<'_, I2C0, Async>> = As5600::new(i2c0);
 
     esp_alloc::heap_allocator!(72 * 1024);
 
@@ -260,8 +261,8 @@ async fn main(spawner: Spawner) -> ! {
         armed,
         left_motor,
         right_motor,
-        // accelerometer,
-        encoder,
+        accelerometer,
+        // encoder,
         led_channel,
     )
     .await;
