@@ -54,9 +54,12 @@ pub async fn control_logic(
 #[embassy_executor::task]
 async fn accelerometer_data(
     state_vector: &'static Mutex<NoopRawMutex, StateVector>,
+    controllers: &'static Mutex<NoopRawMutex, (ControllerState, ControllerState)>,
     mut accelerometer: Accelerometer,
 ) -> ! {
     const ACCELEROMETER_POSITION: f32 = 5.0 * 1.0e-3; // 6mm
+
+    let mut accelerometer_position_offset = 0.;
 
     let period = Duration::from_hz(800);
 
@@ -75,6 +78,8 @@ async fn accelerometer_data(
     let offset = offset_calibration / SAMPLES as f32;
 
     let mut observer = ConstantVelocityObserver::new(0.09, 0.);
+    let mut previous_up = false;
+    let mut previous_down = false;
     // let mut omega_offset = 100;
 
     loop {
@@ -83,13 +88,27 @@ async fn accelerometer_data(
         let Ok(data) = accelerometer.read_all().await else {
             continue;
         };
+
+        let inc_up = controllers.lock().await.0.get(Button::Right);
+        let inc_down = controllers.lock().await.0.get(Button::Left);
+
+        if inc_up && !previous_up {
+            accelerometer_position_offset += 0.1;
+        }
+        if inc_down && !previous_down {
+            accelerometer_position_offset -= 0.1;
+        }
+
+        previous_up = inc_up;
+        previous_down = inc_down;
+
         let time = Instant::now();
         // println!("{}", data);
 
         // a = r * omega^2
         // omega = 1 / sqrt(r / a)
         // println!("{}", data.y - offset);
-        let omega_raw = math::sqrt(math::abs(data.y - offset) / ACCELEROMETER_POSITION);
+        let omega_raw = math::sqrt(math::abs(data.y - offset) / ACCELEROMETER_POSITION + accelerometer_position_offset);
         let omega = observer.observe(omega_raw);
 
         let mut state = state_vector.lock().await;
