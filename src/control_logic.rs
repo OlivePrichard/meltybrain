@@ -46,7 +46,7 @@ pub async fn control_logic(
     }));
 
     spawner
-        .spawn(accelerometer_data(state_vector, accelerometer))
+        .spawn(accelerometer_data(state_vector, controllers ,accelerometer ))
         .ok();
     motor_control(controllers, armed, left_motor, right_motor, state_vector, led).await;
 }
