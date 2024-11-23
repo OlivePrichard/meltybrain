@@ -2,7 +2,14 @@ use as5600::asynch::As5600;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Instant, Ticker};
-use esp_hal::{gpio::GpioPin, i2c::I2c, ledc::{channel::Channel, LowSpeed}, peripherals::I2C0, prelude::_esp_hal_ledc_channel_ChannelIFace, Async};
+use esp_hal::{
+    gpio::GpioPin,
+    i2c::I2c,
+    ledc::{channel::Channel, LowSpeed},
+    peripherals::I2C0,
+    prelude::_esp_hal_ledc_channel_ChannelIFace,
+    Async,
+};
 use esp_println::println;
 // use esp_println::println;
 
@@ -113,7 +120,7 @@ async fn motor_control(
     let dt = Duration::from_hz(2000);
     let mut ticker = Ticker::every(dt);
 
-    let mut spin_power = 30.; // needs to be above 22% as of 4:44 pm on friday
+    let mut spin_power = 26.; // needs to be above 22% as of 4:44 pm on friday
     let move_power = 4.;
     let mut movement_power = 0.;
     let mut led_position = math::deg2rad(-90.);
@@ -131,6 +138,7 @@ async fn motor_control(
 
     let mut previous_time = Instant::now();
     let mut previous_angle = WheelAngle::default();
+    let mut previous_omega = 0.;
 
     let mut theta = 0.;
 
@@ -139,6 +147,7 @@ async fn motor_control(
     const WHEEL_DIAMETER: f32 = 41. * 1e-3;
 
     const LED_ANGLE: f32 = math::deg2rad(10.);
+    const BANG_ZONE: f32 = math::deg2rad(22.5);
 
     loop {
         ticker.next().await;
@@ -157,7 +166,7 @@ async fn motor_control(
         if up && !prev_up {
             spin_power += 2.;
         }
-        if down && ! prev_down {
+        if down && !prev_down {
             spin_power -= 2.;
         }
         prev_up = up;
@@ -168,7 +177,7 @@ async fn motor_control(
         let mut left_power = 0.;
         let mut right_power = 0.;
 
-        if primary_controller.left_trigger >= 32  {
+        if primary_controller.left_trigger >= 32 {
             left_power += spin_power;
             right_power += spin_power;
         }
@@ -184,22 +193,42 @@ async fn motor_control(
         // }
         // let (earliest_time, earliest_angle) = measurment_buffer[earliest_measurement_index];
         // let (latest_time, latest_angle) = measurment_buffer[measurment_index];
-        let current_angle = previous_angle.new(radians);
-        let average_delta_angle = current_angle - previous_angle;
+        let current_wheel_angle = previous_angle.new(radians);
+        let wheel_delta_angle = current_wheel_angle - previous_angle;
         let average_delta_time = f32_seconds(current_time - previous_time);
-        let omega = encoder_correction * average_delta_angle / average_delta_time * WHEEL_DIAMETER / TRACK_WIDTH;
         let dt = f32_seconds(current_time - previous_time);
-        theta += omega * dt;
-        theta = math::wrap_angle(theta);
-        // measurment_buffer[earliest_measurement_index] = (current_time, current_angle);
-        // measurment_index = earliest_measurement_index;
-        previous_angle = current_angle;
-        previous_time = current_time;
-        let correction = dt * omega;
 
         let stick_x = primary_controller.left_stick.get_x();
         let stick_y = primary_controller.left_stick.get_y();
         let magnitude = math::sqrt(stick_x * stick_x + stick_y * stick_y).clamp(0., 1.);
+        let angle = if magnitude > 0.2 {
+            Some(math::atan2(stick_y, stick_x))
+        } else {
+            None
+        };
+        let in_bang_zone = if let Some(angle) = angle {
+            let angle_error = math::abs(math::wrap_angle(
+                theta - angle - led_position + LED_APPARENT_POSITION + dt * previous_omega * 0.5,
+            ));
+            angle_error < BANG_ZONE || angle_error > core::f32::consts::PI - BANG_ZONE
+        } else {
+            false
+        };
+
+        if !in_bang_zone {
+            let omega_temp = encoder_correction * wheel_delta_angle / average_delta_time
+                * WHEEL_DIAMETER
+                / TRACK_WIDTH;
+            previous_omega = omega_temp;
+        }
+        let omega = previous_omega;
+        theta += omega * dt;
+        theta = math::wrap_angle(theta);
+        // measurment_buffer[earliest_measurement_index] = (current_time, current_angle);
+        // measurment_index = earliest_measurement_index;
+        previous_angle = current_wheel_angle;
+        previous_time = current_time;
+        let correction = dt * omega;
 
         let led_stick_x = secondary_controller.right_stick.get_x();
         led_position += led_stick_x * LED_ADJUST_SPEED * dt;
@@ -227,14 +256,20 @@ async fn motor_control(
 
         let led_correction = math::wrap_angle(led_position - LED_APPARENT_POSITION);
 
-        if magnitude > 0.2 {
+        if in_bang_zone {
             let stick_angle = math::atan2(stick_y, stick_x);
             let angle_error = theta - stick_angle;
-            movement_power = magnitude * move_power * math::cos(angle_error + correction - led_correction);
+            let movement_power =
+                if math::abs(math::wrap_angle(angle_error - led_correction + correction))
+                    < BANG_ZONE
+                {
+                    move_power
+                } else {
+                    -move_power
+                } * magnitude;
             left_power -= movement_power;
             right_power += movement_power;
-        }
-        else {
+        } else {
             movement_power = 0.;
         }
 

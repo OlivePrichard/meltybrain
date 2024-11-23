@@ -36,13 +36,11 @@ pub fn get_telemetry() -> &'static Mutex<CriticalSectionRawMutex, Telemetry> {
     TELEMETRY_LOCK.get_or_init(|| {
         static CURRENT_LOGS_BUFFER_CELL: StaticCell<[u8; CURRENT_LOGS_BUFFER_LENGTH]> =
             StaticCell::new();
-            
+
         let current_logs_buffer =
             CURRENT_LOGS_BUFFER_CELL.init_with(|| [0; CURRENT_LOGS_BUFFER_LENGTH]);
 
-        Mutex::new(Telemetry::new(
-            current_logs_buffer
-        ))
+        Mutex::new(Telemetry::new(current_logs_buffer))
     })
 }
 
@@ -64,9 +62,7 @@ pub struct Telemetry {
 }
 
 impl Telemetry {
-    pub fn new(
-        logs: &'static mut [u8],
-    ) -> Self {
+    pub fn new(logs: &'static mut [u8]) -> Self {
         Self {
             logs,
             index: 4, // leave room for the log packet id
