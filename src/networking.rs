@@ -80,12 +80,8 @@ pub async fn handle_networking(
                 }
                 watchdog.feed().await;
 
-                previous_controller_id = receive_packet(
-                    &rx_buffer[..size],
-                    previous_controller_id,
-                    controllers,
-                )
-                .await;
+                previous_controller_id =
+                    receive_packet(&rx_buffer[..size], previous_controller_id, controllers).await;
             }
             Ok(Err(_)) => {
                 log!(ReceivedPacketTooLarge);
@@ -112,16 +108,14 @@ pub async fn handle_networking(
     }
 }
 
-async fn send_packet(
-    socket: &mut UdpSocket<'static>,
-    address: IpEndpoint,
-    log_id: u32,
-) {
+async fn send_packet(socket: &mut UdpSocket<'static>, address: IpEndpoint, log_id: u32) {
     let mut telemetry = get_telemetry().lock().await;
     let id_bytes = log_id.to_le_bytes();
     telemetry.logs[0..4].copy_from_slice(&id_bytes);
 
-    _ = socket.send_to(&telemetry.logs[..telemetry.index], address).await;
+    _ = socket
+        .send_to(&telemetry.logs[..telemetry.index], address)
+        .await;
 }
 
 async fn receive_packet(

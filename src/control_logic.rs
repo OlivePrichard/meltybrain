@@ -2,7 +2,14 @@ use as5600::asynch::As5600;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Instant, Ticker};
-use esp_hal::{gpio::GpioPin, i2c::I2c, ledc::{channel::Channel, LowSpeed}, peripherals::I2C0, prelude::_esp_hal_ledc_channel_ChannelIFace, Async};
+use esp_hal::{
+    gpio::GpioPin,
+    i2c::I2c,
+    ledc::{channel::Channel, LowSpeed},
+    peripherals::I2C0,
+    prelude::_esp_hal_ledc_channel_ChannelIFace,
+    Async,
+};
 use esp_println::println;
 // use esp_println::println;
 
@@ -114,7 +121,7 @@ async fn motor_control(
     let mut ticker = Ticker::every(dt);
 
     let mut spin_power = 30.; // needs to be above 22% as of 4:44 pm on friday
-    let move_power = 4.;
+    let mut move_power = 4.;
     let mut movement_power = 0.;
     let mut led_position = math::deg2rad(-90.);
     const LED_APPARENT_POSITION: f32 = math::deg2rad(133. - 90.);
@@ -152,23 +159,37 @@ async fn motor_control(
         let (primary_controller, secondary_controller) = { *controllers.lock().await };
         // let state = { state_vector.lock().await.predict(Instant::now()) };
 
-        let up = primary_controller.get(Button::Up);
-        let down = primary_controller.get(Button::Down);
-        if up && !prev_up {
-            spin_power += 2.;
+        // let up = primary_controller.get(Button::Up);
+        // let down = primary_controller.get(Button::Down);
+        // if up && !prev_up {
+        //     spin_power += 2.;
+        // }
+        // if down && ! prev_down {
+        //     spin_power -= 2.;
+        // }
+        // prev_up = up;
+        // prev_down = down;
+
+        if primary_controller.get(Button::Down) {
+            spin_power = 30.;
+            move_power = 4.;
+        } else if primary_controller.get(Button::Right) {
+            spin_power = 60.;
+            move_power = 4.;
+        } else if primary_controller.get(Button::Up) {
+            spin_power = 90.;
+            move_power = 4.;
+        } else if primary_controller.get(Button::Left) {
+            spin_power = 30.;
+            move_power = 8.;
         }
-        if down && ! prev_down {
-            spin_power -= 2.;
-        }
-        prev_up = up;
-        prev_down = down;
 
         let encoder_correction = spin_power / (spin_power + movement_power);
 
         let mut left_power = 0.;
         let mut right_power = 0.;
 
-        if primary_controller.left_trigger >= 32  {
+        if primary_controller.left_trigger >= 32 {
             left_power += spin_power;
             right_power += spin_power;
         }
@@ -187,7 +208,8 @@ async fn motor_control(
         let current_angle = previous_angle.new(radians);
         let average_delta_angle = current_angle - previous_angle;
         let average_delta_time = f32_seconds(current_time - previous_time);
-        let omega = encoder_correction * average_delta_angle / average_delta_time * WHEEL_DIAMETER / TRACK_WIDTH;
+        let omega = encoder_correction * average_delta_angle / average_delta_time * WHEEL_DIAMETER
+            / TRACK_WIDTH;
         let dt = f32_seconds(current_time - previous_time);
         theta += omega * dt;
         theta = math::wrap_angle(theta);
@@ -204,8 +226,8 @@ async fn motor_control(
         let led_stick_x = secondary_controller.right_stick.get_x();
         led_position += led_stick_x * LED_ADJUST_SPEED * dt;
 
-        let left_bumper = primary_controller.get(Button::LeftBumper);
-        let right_bumper = primary_controller.get(Button::RightBumper);
+        let left_bumper = secondary_controller.get(Button::LeftBumper);
+        let right_bumper = secondary_controller.get(Button::RightBumper);
         if left_bumper && !prev_left_bumper {
             led_position -= LED_JUMP_ADJUST_VALUE;
         }
@@ -230,11 +252,11 @@ async fn motor_control(
         if magnitude > 0.2 {
             let stick_angle = math::atan2(stick_y, stick_x);
             let angle_error = theta - stick_angle;
-            movement_power = magnitude * move_power * math::cos(angle_error + correction - led_correction);
+            movement_power =
+                magnitude * move_power * math::cos(angle_error + correction - led_correction);
             left_power -= movement_power;
             right_power += movement_power;
-        }
-        else {
+        } else {
             movement_power = 0.;
         }
 
