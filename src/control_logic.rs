@@ -89,8 +89,8 @@ async fn accelerometer_data(
             continue;
         };
 
-        let inc_up = controllers.lock().await.0.get(Button::Left);
-        let inc_down = controllers.lock().await.0.get(Button::Right);
+        let inc_up = controllers.lock().await.0.get(Button::Right);
+        let inc_down = controllers.lock().await.0.get(Button::Left);
 
         if inc_up && !previous_up {
             accelerometer_position_offset += 0.1;
