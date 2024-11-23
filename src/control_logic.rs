@@ -74,7 +74,7 @@ async fn accelerometer_data(
     }
     let offset = offset_calibration / SAMPLES as f32;
 
-    // let mut observer = ConstantVelocityObserver::new(0.09, 0.);
+    let mut observer = ConstantVelocityObserver::new(0.09, 0.);
     // let mut omega_offset = 100;
 
     loop {
@@ -89,8 +89,8 @@ async fn accelerometer_data(
         // a = r * omega^2
         // omega = 1 / sqrt(r / a)
         // println!("{}", data.y - offset);
-        let omega = math::sqrt(math::abs(data.y - offset) / ACCELEROMETER_POSITION);
-        // let omega = 100.0; // observer.observe(omega_raw);
+        let omega_raw = math::sqrt(math::abs(data.y - offset) / ACCELEROMETER_POSITION);
+        let omega = observer.observe(omega_raw);
 
         let mut state = state_vector.lock().await;
         // let average_omega = (state.omega + omega) * 0.5;
@@ -362,20 +362,20 @@ impl Default for LowPassFilter {
     }
 }
 
-struct _ConstantVelocityObserver {
+struct ConstantVelocityObserver {
     k: f32,
     estimated_velocity: f32,
 }
 
-impl _ConstantVelocityObserver {
-    fn _new(k: f32, initial_velocity: f32) -> Self {
+impl ConstantVelocityObserver {
+    fn new(k: f32, initial_velocity: f32) -> Self {
         Self {
             k,
             estimated_velocity: initial_velocity,
         }
     }
 
-    fn _observe(&mut self, z: f32) -> f32 {
+    fn observe(&mut self, z: f32) -> f32 {
         self.estimated_velocity = self.estimated_velocity + self.k * (z - self.estimated_velocity);
         self.estimated_velocity
     }
