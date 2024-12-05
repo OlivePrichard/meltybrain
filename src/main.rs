@@ -3,7 +3,6 @@
 
 mod control_logic;
 mod hardware;
-mod logging;
 mod math;
 mod networking;
 mod shared_code;
@@ -39,7 +38,6 @@ use esp_wifi::{
     EspWifiInitFor,
 };
 
-use logging::log;
 use networking::handle_networking;
 use shared_code::controller::ControllerState;
 use watchdog::Watchdog;
@@ -78,7 +76,6 @@ async fn connection(mut controller: WifiController<'static>) -> ! {
             // println!("Starting wifi");
             controller.start().await.unwrap();
             // println!("Wifi started!");
-            log!(WifiStarted);
         }
     }
 }
@@ -102,7 +99,7 @@ async fn watchdog_task(
 
     loop {
         watchdog.run().await;
-        log!(WatchdogTimeout);
+        // timeout
         {
             let mut lock = armed.lock().await;
             *lock = false;
@@ -110,7 +107,7 @@ async fn watchdog_task(
         while !watchdog.is_fed().await {
             Timer::after(delay).await;
         }
-        log!(ConnectionRestored);
+        // reconnected
         {
             let mut lock = armed.lock().await;
             *lock = true;
@@ -120,8 +117,6 @@ async fn watchdog_task(
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) -> ! {
-    log!(Initializing);
-
     esp_println::logger::init_logger_from_env();
     let peripherals = esp_hal::init({
         let mut config = esp_hal::Config::default();
@@ -208,11 +203,6 @@ async fn main(spawner: Spawner) -> ! {
     let systimer = SystemTimer::new(peripherals.SYSTIMER).split::<Target>();
     esp_hal_embassy::init(systimer.alarm0);
 
-    log!(Initialized);
-
-    // accelerometer.find_calibration_offset().await.unwrap();
-    // loop {}
-
     let config = embassy_net::Config::ipv4_static(StaticConfigV4 {
         address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 2, 1), 24),
         gateway: Some(Ipv4Address::from_bytes(&[192, 168, 2, 1])),
@@ -260,7 +250,6 @@ async fn main(spawner: Spawner) -> ! {
         armed,
         left_motor,
         right_motor,
-        // accelerometer,
         encoder,
         led_channel,
     )

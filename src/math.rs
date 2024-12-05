@@ -14,6 +14,7 @@ pub const fn deg2rad(rad: f32) -> f32 {
     rad * PI / 180.
 }
 
+/// wraps the input angle (rad) to the range [-pi, pi)
 #[inline]
 pub fn wrap_angle(mut angle: f32) -> f32 {
     use core::f32::consts::{PI, TAU};
@@ -216,5 +217,14 @@ fn kernel_atan(x: f32) -> f32 {
     const B: f32 = 0.1784;
     const C: f32 = 0.0663;
 
-    (A - (B + C * x) * x) * x
+    let y = (A - (B + C * x) * x) * x;
+
+    // newton iteration
+    // f(y) = tan(y) - x
+    // f'(y) = sec^2(y)
+    // y_new = y - (tan(y) - x) / sec^2(x)
+    // y_new = y - cos(y) * sin(y) + cos^2(y) * x
+
+    let (s, c) = sin_cos(y);
+    y - s * c + c * c * x
 }
