@@ -12,7 +12,7 @@ use esp_hal::{
 };
 
 use crate::{
-    hardware::{Motor, WheelAngle},
+    hardware::WheelAngle,
     math,
     shared_code::controller::{Button, ControllerState},
 };
@@ -21,37 +21,30 @@ pub async fn control_logic(
     _spawner: Spawner,
     controllers: &'static Mutex<NoopRawMutex, (ControllerState, ControllerState)>,
     armed: &'static Mutex<NoopRawMutex, bool>,
-    mut left_motor: Motor<GpioPin<21>>,
-    mut right_motor: Motor<GpioPin<5>>,
     // accelerometer: Accelerometer,
-    encoder: As5600<I2c<'static, I2C0, Async>>,
+    i2c: I2c<'static, I2C0, Async>,
     led: Channel<'static, LowSpeed, GpioPin<10>>,
 ) -> ! {
-    left_motor.start_duty_fade(0, 100, 1000).unwrap();
-    right_motor.start_duty_fade(0, 100, 1000).unwrap();
-    while left_motor.is_fade_running() || right_motor.is_fade_running() {}
-    left_motor.start_duty_fade(100, 0, 1000).unwrap();
-    right_motor.start_duty_fade(100, 0, 1000).unwrap();
-    while left_motor.is_fade_running() || right_motor.is_fade_running() {}
 
-    motor_control(controllers, armed, left_motor, right_motor, encoder, led).await;
+    motor_control(controllers, armed, i2c, led).await;
 }
 
 async fn motor_control(
     controllers: &Mutex<NoopRawMutex, (ControllerState, ControllerState)>,
     armed: &Mutex<NoopRawMutex, bool>,
-    mut left_motor: Motor<GpioPin<21>>,
-    mut right_motor: Motor<GpioPin<5>>,
+    // mut left_motor: Motor<GpioPin<21>>,
+    // mut right_motor: Motor<GpioPin<5>>,
     // state_vector: &Mutex<NoopRawMutex, StateVector>,
-    mut encoder: As5600<I2c<'static, I2C0, Async>>,
+    // mut encoder: As5600<I2c<'static, I2C0, Async>>,
+    i2c: I2c<'static, I2C0, Async>,
     led: Channel<'static, LowSpeed, GpioPin<10>>,
 ) -> ! {
     let dt = Duration::from_hz(2000);
     let mut ticker = Ticker::every(dt);
 
-    let mut k_spin_power = 30.; // needs to be above 22% as of 4:44 pm, Friday 22 Nov 2024, the night before comp
+    let mut k_spin_power = 80.; // needs to be above 22% as of 4:44 pm, Friday 22 Nov 2024, the night before comp
     // this is probably some sort of esc issue but if it's lower than 22% the left motor doesn't turn
-    let mut k_move_power = 4.;
+    let mut k_move_power = 8.;
     let mut translation_power = 0.;
     let mut led_on_position = math::deg2rad(-90.); // led turns on when at the 6:00 position
     const LED_APPARENT_POSITION: f32 = math::deg2rad(133. - 90.); // where the led is physically located
@@ -76,8 +69,9 @@ async fn motor_control(
 
         // stop if watchdog has timed out or isn't yet armed
         if !*armed.lock().await {
-            left_motor.set_duty(50).unwrap();
-            right_motor.set_duty(50).unwrap();
+            motor_command(i2c, 0., 0.);
+            // left_motor.set_duty(50).unwrap();
+            // right_motor.set_duty(50).unwrap();
             continue;
         }
 
@@ -85,17 +79,17 @@ async fn motor_control(
 
         // allow us to change speeds based on button inputs
         if primary_controller.get(Button::Down) {
-            k_spin_power = 30.;
-            k_move_power = 4.;
-        } else if primary_controller.get(Button::Right) {
-            k_spin_power = 60.;
-            k_move_power = 4.;
-        } else if primary_controller.get(Button::Up) {
-            k_spin_power = 90.;
-            k_move_power = 4.;
-        } else if primary_controller.get(Button::Left) {
-            k_spin_power = 30.;
+            k_spin_power = 40.;
             k_move_power = 8.;
+        } else if primary_controller.get(Button::Right) {
+            k_spin_power = 80.;
+            k_move_power = 8.;
+        } else if primary_controller.get(Button::Up) {
+            k_spin_power = 120.;
+            k_move_power = 8.;
+        } else if primary_controller.get(Button::Left) {
+            k_spin_power = 80.;
+            k_move_power = 16.;
         }
 
         // assume both motors are spinning at a speed proportional to their input powers
@@ -175,12 +169,26 @@ async fn motor_control(
             translation_power = 0.;
         }
 
-        left_motor.set_power(left_power).unwrap();
-        right_motor.set_power(right_power).unwrap();
+        motor_command(i2c, left_power, right_power);
     }
 }
 
 fn f32_seconds(duration: Duration) -> f32 {
     const SECONDS_PER_MICROSECOND: f32 = 1.0e-6;
     duration.as_micros() as f32 * SECONDS_PER_MICROSECOND
+}
+
+async fn motor_command(
+    mut i2c: I2c<'static, I2C0, Async>,
+    left_vel: f32,
+    right_vel: f32,
+) {
+    let left_buffer = (left_vel as f64).to_bits().to_le_bytes();
+    let right_buffer = (right_vel as f64).to_bits().to_le_bytes();
+    let mut packet = [0; 18];
+    packet[0] = 0xAA;
+    packet[1] = 0x55;
+    packet[2..10].copy_from_slice(&left_buffer);
+    packet[10..18].copy_from_slice(&right_buffer);
+    i2c.write(0x42, &packet);
 }

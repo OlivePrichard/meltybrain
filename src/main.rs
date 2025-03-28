@@ -17,15 +17,7 @@ use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::CpuClock,
-    gpio::Io,
-    i2c::I2c,
-    ledc::{channel, timer, Ledc, LowSpeed},
-    peripherals::I2C0,
-    prelude::*,
-    rng::Rng,
-    timer::timg::TimerGroup,
-    Async,
+    clock::CpuClock, gpio::Io, i2c::I2c, ledc::{channel, timer, Ledc, LowSpeed}, peripherals::I2C0, prelude::*, rng::Rng, timer::timg::TimerGroup, Async
 };
 // use hardware::Accelerometer;
 // use esp_println::println;
@@ -178,7 +170,7 @@ async fn main(spawner: Spawner) -> ! {
     // let mut accelerometer = Accelerometer::new(&i2c0);
     // accelerometer.init().await.unwrap();
 
-    let encoder: As5600<I2c<'_, I2C0, Async>> = As5600::new(i2c0);
+    // let encoder: As5600<I2c<'_, I2C0, Async>> = As5600::new(i2c0);
 
     esp_alloc::heap_allocator!(72 * 1024);
 
@@ -248,9 +240,10 @@ async fn main(spawner: Spawner) -> ! {
         spawner,
         controller_data,
         armed,
-        left_motor,
-        right_motor,
-        encoder,
+        // left_motor,
+        // right_motor,
+        // encoder,
+        i2c0,
         led_channel,
     )
     .await;
