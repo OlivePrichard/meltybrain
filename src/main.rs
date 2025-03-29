@@ -17,7 +17,7 @@ use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::CpuClock, gpio::Io, i2c::I2c, ledc::{channel, timer, Ledc, LowSpeed}, peripherals::I2C0, prelude::*, rng::Rng, timer::timg::TimerGroup, Async
+    clock::CpuClock, gpio::Io, i2c::I2c, ledc::{channel, timer, Ledc, LowSpeed}, peripherals::I2C0, prelude::*, rng::Rng, timer::timg::TimerGroup, Async, Blocking
 };
 // use hardware::Accelerometer;
 // use esp_println::println;
@@ -165,8 +165,9 @@ async fn main(spawner: Spawner) -> ! {
     let left_motor = hardware::Motor::new(left_motor_channel);
     let right_motor = hardware::Motor::new(right_motor_channel);
 
-    let i2c0: I2c<'static, I2C0, Async> =
-        I2c::new_async(peripherals.I2C0, io.pins.gpio6, io.pins.gpio7, 400.kHz());
+    let i2c0: I2c<'static, I2C0, Blocking> =
+        I2c::new(peripherals.I2C0, io.pins.gpio6, io.pins.gpio7, 400.kHz());
+    
     // let mut accelerometer = Accelerometer::new(&i2c0);
     // accelerometer.init().await.unwrap();
 

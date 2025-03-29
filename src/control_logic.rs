@@ -5,23 +5,27 @@ use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Instant, Ticker};
 use esp_hal::{
     gpio::GpioPin,
-    i2c::I2c,
+    i2c::{Error, I2c},
     ledc::{channel::Channel, LowSpeed},
     peripherals::I2C0,
-    Async,
+    Async, Blocking,
 };
+use esp_println::println;
 
 use crate::{
     math,
     shared_code::controller::{Button, ControllerState},
 };
 
+const FEATHER_ADDR: u8 = 0x42;
+const ACCEL_ADDR: u8 = 0x53;
+
 pub async fn control_logic(
     _spawner: Spawner,
     controllers: &'static Mutex<NoopRawMutex, (ControllerState, ControllerState)>,
     armed: &'static Mutex<NoopRawMutex, bool>,
     // accelerometer: Accelerometer,
-    i2c: I2c<'static, I2C0, Async>,
+    i2c: I2c<'static, I2C0, Blocking>,
     led: Channel<'static, LowSpeed, GpioPin<10>>,
 ) -> ! {
 
@@ -35,7 +39,7 @@ async fn motor_control(
     // mut right_motor: Motor<GpioPin<5>>,
     // state_vector: &Mutex<NoopRawMutex, StateVector>,
     // mut encoder: As5600<I2c<'static, I2C0, Async>>,
-    mut i2c: I2c<'static, I2C0, Async>,
+    mut i2c: I2c<'static, I2C0, Blocking>,
     led: Channel<'static, LowSpeed, GpioPin<10>>,
 ) -> ! {
     let dt = Duration::from_hz(3200);
@@ -49,7 +53,10 @@ async fn motor_control(
     let mut accelerometer_radius: f32 = 10e-3; // 10 mm
 
     let rate_command: [u8; 2] = [0x2C, 0x0D];
-    i2c.write(0x53, &rate_command).await.unwrap();
+    // let res = i2c.write(0x53, &rate_command).await;
+    // if let Err(e) = res {
+    //     println!("A {:?}", e);
+    // }
 
     let mut previous_time = Instant::now();
 
@@ -62,7 +69,10 @@ async fn motor_control(
 
         // stop if watchdog has timed out or isn't yet armed
         if !*armed.lock().await {
-            motor_command(&mut i2c, 0., 0.).await;
+            let res = motor_command(&mut i2c, 0., 0.).await;
+            if let Err(e) = res {
+                // println!("B {:?}", e);
+            }
             // left_motor.set_duty(50).unwrap();
             // right_motor.set_duty(50).unwrap();
             continue;
@@ -109,7 +119,10 @@ async fn motor_control(
         }
 
         if loop_counter % 2 == 0 {
-            motor_command(&mut i2c, left_power, right_power).await;
+            let res = motor_command(&mut i2c, left_power, right_power).await;
+            if let Err(e) = res {
+                // println!("C {:?}", e);
+            }
         }
 
         loop_counter += 1
@@ -121,30 +134,32 @@ async fn led_update(led: &Channel<'static, LowSpeed, GpioPin<10>>, position: f32
 }
 
 async fn motor_command(
-    i2c: &mut I2c<'static, I2C0, Async>,
+    i2c: &mut I2c<'static, I2C0, Blocking>,
     left_vel: f32,
     right_vel: f32,
-) {
+) -> Result<(), Error> {
+    // println!("Motor command: {}, {}", left_vel, right_vel);
     let left_buffer = left_vel.to_bits().to_le_bytes();
     let right_buffer = right_vel.to_bits().to_le_bytes();
     let mut packet = [0; 8];
     packet[0..4].copy_from_slice(&left_buffer);
     packet[4..8].copy_from_slice(&right_buffer);
-    i2c.write(0x42, &packet).await.unwrap();
+    i2c.write(0x42, &packet)?;
+    Ok(())
 }
 
 async fn read_accelerometer(
-    i2c: &mut I2c<'static, I2C0, Async>
-) -> [f32; 3] {
+    i2c: &mut I2c<'static, I2C0, Blocking>
+) -> Result<[f32; 3], Error> {
     const G_PER_LSB: f32 = 0.049;
     const GRAV: f32 = 9.80665;
     let mut data_in = [0u8; 6];
     let register = [0x32u8];
-    i2c.write_read(0x53, &register, &mut data_in).await.unwrap();
+    i2c.write_read(0x53, &register, &mut data_in)?;
     let mut axes = [0., 0., 0.];
     for i in 0..3 {
         let value = i16::from_le_bytes(data_in[(2 * i)..(2 * i + 2)].try_into().expect("This is always 2 bytes so the conversion never fails."));
         axes[i] = value as f32 * G_PER_LSB * GRAV;
     }
-    axes
+    Ok(axes)
 }
