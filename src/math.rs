@@ -1,5 +1,20 @@
 #![allow(dead_code)]
 
+use core::f32::consts::PI;
+const WHEELBASE: f32 = 116.0 + 16.; // * 1.036888888; // mm wheel base distance 
+const WHEEL_DIAMETER: f32 = 48.0; // mm wheel diameter
+
+/**
+ * wheel speeds in rotations per second to radians per second of the chassis 
+ */
+pub fn wheelSpeedtoAngularVelocity(l: f32, r: f32, trim: f32) -> f32 {
+    let left_mm: f32 = (WHEEL_DIAMETER * PI * l); // (rotations per second) * mm * pi = mm / s
+    let right_mm: f32 = (WHEEL_DIAMETER * PI * r);
+    let angular_velocity_mm_s = (right_mm - left_mm) / (WHEELBASE + trim);
+    return angular_velocity_mm_s
+}
+
+
 #[inline]
 pub fn rad2deg(rad: f32) -> f32 {
     use core::f32::consts::PI;

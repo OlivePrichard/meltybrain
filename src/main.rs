@@ -17,7 +17,7 @@ use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::CpuClock, gpio::Io, i2c::I2c, ledc::{channel, timer, Ledc, LowSpeed}, peripherals::I2C0, prelude::*, rng::Rng, timer::timg::TimerGroup, Async, Blocking
+    analog::{self, adc::{self, Adc, AdcConfig, Attenuation}}, clock::CpuClock, gpio::Io, i2c::I2c, ledc::{channel, timer, Ledc, LowSpeed}, peripherals::{ADC1, I2C0}, prelude::*, rng::Rng, timer::timg::TimerGroup, Async, Blocking
 };
 // use hardware::Accelerometer;
 // use esp_println::println;
@@ -30,6 +30,7 @@ use esp_wifi::{
     EspWifiInitFor,
 };
 
+use hardware::IrSensor;
 use networking::handle_networking;
 use shared_code::controller::ControllerState;
 use watchdog::Watchdog;
@@ -121,6 +122,7 @@ async fn main(spawner: Spawner) -> ! {
     let left_motor_pin = io.pins.gpio21;
     let right_motor_pin = io.pins.gpio5;
     let led_pin = io.pins.gpio10;
+    let ir_pin = io.pins.gpio3;
 
     let mut ledc = Ledc::new(peripherals.LEDC);
     ledc.set_global_slow_clock(esp_hal::ledc::LSGlobalClkSource::APBClk);
@@ -161,12 +163,21 @@ async fn main(spawner: Spawner) -> ! {
             pin_config: channel::config::PinConfig::PushPull,
         })
         .unwrap();
+    
 
     let left_motor = hardware::Motor::new(left_motor_channel);
     let right_motor = hardware::Motor::new(right_motor_channel);
 
     let i2c0: I2c<'static, I2C0, Blocking> =
         I2c::new(peripherals.I2C0, io.pins.gpio6, io.pins.gpio7, 400.kHz());
+
+    let mut adc_config = AdcConfig::new();
+    let analog_pin = adc_config.enable_pin(ir_pin, Attenuation::Attenuation11dB);
+    let adc = mk_static!(
+        Adc<'_, ADC1>,
+        Adc::new(peripherals.ADC1, adc_config)
+    );
+    let ir_sensor = IrSensor::new(adc, analog_pin);
     
     // let mut accelerometer = Accelerometer::new(&i2c0);
     // accelerometer.init().await.unwrap();
@@ -246,6 +257,7 @@ async fn main(spawner: Spawner) -> ! {
         // encoder,
         i2c0,
         led_channel,
+        ir_sensor,
     )
-    .await;
+    .await
 }

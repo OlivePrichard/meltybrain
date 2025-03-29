@@ -3,12 +3,10 @@
 use core::ops::Sub;
 
 use esp_hal::{
-    gpio::OutputPin,
-    ledc::{
+    analog::adc::{Adc, AdcPin}, gpio::{GpioPin, OutputPin}, ledc::{
         channel::{self, Channel},
         LowSpeed,
-    },
-    prelude::_esp_hal_ledc_channel_ChannelIFace,
+    }, peripherals::ADC1, prelude::{_esp_hal_ledc_channel_ChannelIFace, nb}
 };
 
 pub struct Motor<Pin: OutputPin + 'static> {
@@ -115,5 +113,23 @@ impl Sub for WheelAngle {
         let angle = self.angle - rhs.angle;
 
         turns as f32 * TAU + angle
+    }
+}
+
+pub struct IrSensor {
+    adc: &'static mut Adc<'static, ADC1>,
+    pin: AdcPin<GpioPin<3>, ADC1>,
+}
+
+impl IrSensor {
+    pub fn new(adc: &'static mut Adc<'static, ADC1>, pin: AdcPin<GpioPin<3>, ADC1>) -> Self {
+        Self {
+            adc,
+            pin,
+        }
+    }
+
+    pub async fn read(&mut self) -> Result<f32, ()> {
+        nb::block!(self.adc.read_oneshot(&mut self.pin)).map(|x| { x as f32 / 0x10_00 as f32 })
     }
 }
