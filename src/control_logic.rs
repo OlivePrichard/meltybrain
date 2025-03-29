@@ -45,6 +45,8 @@ async fn motor_control(
     let mut k_spin_velocity = 2.; // needs to be above 22% as of 4:44 pm, Friday 22 Nov 2024, the night before comp
     // this is probably some sort of esc issue but if it's lower than 22% the left motor doesn't turn
     let mut k_move_velocity = 2.;
+    const TANK_FORWARD: f32 = 60.;
+    const TANK_ROTATE: f32 = 15.;
     let mut accelerometer_radius: f32 = 10e-3; // 10 mm
     const IR_SENSOR_POSITION: f32 = math::deg2rad(45.);
     const IR_BEACON_POSITION: f32 = math::deg2rad(-90.);
@@ -87,17 +89,17 @@ async fn motor_control(
 
         // allow us to change speeds based on button inputs
         if primary_controller.get(Button::Down) {
-            k_spin_velocity = 10.;
-            k_move_velocity = 10.;
-        } else if primary_controller.get(Button::Right) {
-            k_spin_velocity = 30.;
-            k_move_velocity = 10.;
-        } else if primary_controller.get(Button::Up) {
-            k_spin_velocity = 2.;
-            k_move_velocity = 2.;
-        } else if primary_controller.get(Button::Left) {
             k_spin_velocity = 20.;
-            k_move_velocity = 10.;
+            k_move_velocity = 15.;
+        } else if primary_controller.get(Button::Right) {
+            k_spin_velocity = 60.;
+            k_move_velocity = 15.;
+        } else if primary_controller.get(Button::Up) {
+            k_spin_velocity = 70.;
+            k_move_velocity = 5.;
+        } else if primary_controller.get(Button::Left) {
+            k_spin_velocity = 50.;
+            k_move_velocity = 25.;
         }
 
         let mut left_power = 0.;
@@ -122,10 +124,12 @@ async fn motor_control(
 
         if loop_counter % 2 == 0 {
             let actual_theta = robot_theta + beacon_offset;
-            let x = primary_controller.left_stick.get_x();
-            let y = primary_controller.left_stick.get_y();
+            let mut x = primary_controller.left_stick.get_x();
+            let mut y = primary_controller.left_stick.get_y();
+            let right_x = primary_controller.right_stick.get_x();
             let left = primary_controller.get(Button::LeftBumper);
             let right = primary_controller.get(Button::RightBumper);
+            let tank_mode = primary_controller.right_trigger >= 32;
             let left_edge = left && !previous_left;
             previous_left = left;
             let right_edge = right && !previous_right;
@@ -140,9 +144,15 @@ async fn motor_control(
             let mut power = math::sqrt(x * x + y * y);
             if power < 0.2 {
                 power = 0.;
+                x = 0.;
+                y = 0.;
             }
             let (left, right) =
                 calculate_motor_command(actual_theta, desired_angle, k_move_velocity * power);
+            if tank_mode {
+                left_power = TANK_FORWARD * y + TANK_ROTATE * right_x;
+                right_power = TANK_FORWARD * y - TANK_ROTATE * right_x;
+            }
             left_power += left;
             right_power += right;
             let res = motor_command(&mut i2c, left_power, right_power, trim).await;
