@@ -1,4 +1,5 @@
-use as5600::asynch::As5600;
+use core::f32::consts::{PI, TAU};
+
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Instant, Ticker};
@@ -7,12 +8,10 @@ use esp_hal::{
     i2c::I2c,
     ledc::{channel::Channel, LowSpeed},
     peripherals::I2C0,
-    prelude::_esp_hal_ledc_channel_ChannelIFace,
     Async,
 };
 
 use crate::{
-    hardware::WheelAngle,
     math,
     shared_code::controller::{Button, ControllerState},
 };
@@ -36,159 +35,116 @@ async fn motor_control(
     // mut right_motor: Motor<GpioPin<5>>,
     // state_vector: &Mutex<NoopRawMutex, StateVector>,
     // mut encoder: As5600<I2c<'static, I2C0, Async>>,
-    i2c: I2c<'static, I2C0, Async>,
+    mut i2c: I2c<'static, I2C0, Async>,
     led: Channel<'static, LowSpeed, GpioPin<10>>,
 ) -> ! {
-    let dt = Duration::from_hz(2000);
+    let dt = Duration::from_hz(3200);
     let mut ticker = Ticker::every(dt);
 
-    let mut k_spin_power = 80.; // needs to be above 22% as of 4:44 pm, Friday 22 Nov 2024, the night before comp
+    let mut k_spin_velocity = 80.; // needs to be above 22% as of 4:44 pm, Friday 22 Nov 2024, the night before comp
     // this is probably some sort of esc issue but if it's lower than 22% the left motor doesn't turn
-    let mut k_move_power = 8.;
-    let mut translation_power = 0.;
-    let mut led_on_position = math::deg2rad(-90.); // led turns on when at the 6:00 position
-    const LED_APPARENT_POSITION: f32 = math::deg2rad(133. - 90.); // where the led is physically located
-    const LED_ADJUST_SPEED: f32 = math::deg2rad(240.);
-    const LED_JUMP_ADJUST_VALUE: f32 = math::deg2rad(60.);
-    let mut prev_left_bumper = false;
-    let mut prev_right_bumper = false;
+    let mut k_move_velocity = 8.;
+    const LED_ON_POSITION: f32 = math::deg2rad(-90.); // led turns on when at the 6:00 position
+    const LED_WINDOW: f32 = math::deg2rad(10.);
+    let mut accelerometer_radius: f32 = 10e-3; // 10 mm
+
+    let rate_command: [u8; 2] = [0x2C, 0x0D];
+    i2c.write(0x53, &rate_command).await.unwrap();
 
     let mut previous_time = Instant::now();
-    let mut prev_unwrapped_encoder_angle = WheelAngle::default();
 
-    let mut robot_theta = 0.;
-
-    const ANGLE_CONVERSION: f32 = core::f32::consts::TAU / 4096.;
-    const TRACK_WIDTH: f32 = 114. * 1e-3;
-    const WHEEL_DIAMETER: f32 = 41. * 1e-3;
-
-    const LED_ANGLE: f32 = math::deg2rad(10.);
+    let mut robot_theta: f32 = 0.;
+    let mut robot_omega: f32 = 0.;
+    let mut loop_counter = 0;
 
     loop {
         ticker.next().await;
 
         // stop if watchdog has timed out or isn't yet armed
         if !*armed.lock().await {
-            motor_command(i2c, 0., 0.);
+            motor_command(&mut i2c, 0., 0.).await;
             // left_motor.set_duty(50).unwrap();
             // right_motor.set_duty(50).unwrap();
             continue;
         }
 
-        let (primary_controller, secondary_controller) = { *controllers.lock().await };
+        let (primary_controller, _secondary_controller) = { *controllers.lock().await };
 
         // allow us to change speeds based on button inputs
         if primary_controller.get(Button::Down) {
-            k_spin_power = 40.;
-            k_move_power = 8.;
+            k_spin_velocity = 40.;
+            k_move_velocity = 8.;
         } else if primary_controller.get(Button::Right) {
-            k_spin_power = 80.;
-            k_move_power = 8.;
+            k_spin_velocity = 80.;
+            k_move_velocity = 8.;
         } else if primary_controller.get(Button::Up) {
-            k_spin_power = 120.;
-            k_move_power = 8.;
+            k_spin_velocity = 120.;
+            k_move_velocity = 8.;
         } else if primary_controller.get(Button::Left) {
-            k_spin_power = 80.;
-            k_move_power = 16.;
+            k_spin_velocity = 80.;
+            k_move_velocity = 16.;
         }
-
-        // assume both motors are spinning at a speed proportional to their input powers
-        // this assumption is entirely untrue but it's the best we've got for estimating the speed of the left wheel
-        // encoder_correction is the ratio between the average wheel speeds and the right wheel speed
-        let encoder_correction = k_spin_power / (k_spin_power + translation_power);
 
         let mut left_power = 0.;
         let mut right_power = 0.;
 
         // spin if trigger is more than 1/8 pressed down
         if primary_controller.left_trigger >= 32 {
-            left_power += k_spin_power;
-            right_power += k_spin_power;
+            left_power -= k_spin_velocity;
+            right_power += k_spin_velocity;
         }
 
-        let Ok(angle) = encoder.angle().await else {
-            continue;
-        };
-        let current_time = Instant::now();
-
-        let encoder_angle = math::deg2rad(360.) - angle as f32 * ANGLE_CONVERSION;
-        let unwrapped_encoder_angle = prev_unwrapped_encoder_angle.new(encoder_angle);
-        let delta_encoder_angle = unwrapped_encoder_angle - prev_unwrapped_encoder_angle;
-        prev_unwrapped_encoder_angle = unwrapped_encoder_angle;
-
-        let dt = f32_seconds(current_time - previous_time);
-        previous_time = current_time;
-
-        let robot_omega = encoder_correction * delta_encoder_angle / dt * WHEEL_DIAMETER / TRACK_WIDTH;
-        robot_theta += robot_omega * dt;
-        robot_theta = math::wrap_angle(robot_theta);
-
-        let delta_robot_theta = dt * robot_omega;
-
-        // fine adjustment for led position
-        let led_stick_x = -secondary_controller.right_stick.get_x();
-        led_on_position += led_stick_x * LED_ADJUST_SPEED * dt;
-
-        // allow pressing our bumpers to step the led position
-        let left_bumper = secondary_controller.get(Button::LeftBumper);
-        let right_bumper = secondary_controller.get(Button::RightBumper);
-        if left_bumper && !prev_left_bumper {
-            led_on_position += LED_JUMP_ADJUST_VALUE;
+        let dt = dt.as_micros() as f32 / 1e6;
+        robot_theta += dt * robot_omega;
+        if robot_theta >= PI {
+            robot_theta -= TAU;
         }
-        if right_bumper && !prev_right_bumper {
-            led_on_position -= LED_JUMP_ADJUST_VALUE;
+        else if robot_theta < -PI {
+            robot_theta += TAU;
         }
-        prev_left_bumper = left_bumper;
-        prev_right_bumper = right_bumper;
+        led_update(&led, robot_theta).await;
 
-        led_on_position = math::wrap_angle(led_on_position);
-
-        // control led
-        let average_theta = math::wrap_angle(robot_theta + delta_robot_theta * 0.5);
-        let led_difference = math::wrap_angle(average_theta - led_on_position);
-        if math::abs(led_difference) < LED_ANGLE {
-            led.set_duty(100).unwrap();
-        } else {
-            led.set_duty(0).unwrap();
+        if loop_counter % 4 == 0 {
+            // accelerometer shit
         }
 
-        // adjust our movement based on the driver controlling the led position
-        let led_correction = math::wrap_angle(led_on_position - LED_APPARENT_POSITION);
-
-        let stick_x = -primary_controller.left_stick.get_x();
-        let stick_y = primary_controller.left_stick.get_y();
-        let stick_magnitude = math::sqrt(stick_x * stick_x + stick_y * stick_y).clamp(0., 1.);
-        if stick_magnitude > 0.2 {
-            let stick_angle = math::atan2(stick_y, stick_x);
-            let angle_error = robot_theta - stick_angle;
-            translation_power =
-                stick_magnitude * k_move_power * math::cos(angle_error + delta_robot_theta - led_correction);
-            left_power -= translation_power;
-            right_power += translation_power;
-        } else {
-            translation_power = 0.;
+        if loop_counter % 2 == 0 {
+            motor_command(&mut i2c, left_power, right_power).await;
         }
 
-        motor_command(i2c, left_power, right_power);
+        loop_counter += 1
     }
 }
 
-fn f32_seconds(duration: Duration) -> f32 {
-    const SECONDS_PER_MICROSECOND: f32 = 1.0e-6;
-    duration.as_micros() as f32 * SECONDS_PER_MICROSECOND
+async fn led_update(led: &Channel<'static, LowSpeed, GpioPin<10>>, position: f32) {
+
 }
 
 async fn motor_command(
-    mut i2c: I2c<'static, I2C0, Async>,
+    i2c: &mut I2c<'static, I2C0, Async>,
     left_vel: f32,
     right_vel: f32,
 ) {
-    let left_buffer = (left_vel as f64).to_bits().to_le_bytes();
-    let right_buffer = (right_vel as f64).to_bits().to_le_bytes();
-    let mut packet = [0; 18];
-    packet[0] = 0xAA;
-    packet[1] = 0x55;
-    packet[2..10].copy_from_slice(&left_buffer);
-    packet[10..18].copy_from_slice(&right_buffer);
-    i2c.write(0x42, &packet);
+    let left_buffer = left_vel.to_bits().to_le_bytes();
+    let right_buffer = right_vel.to_bits().to_le_bytes();
+    let mut packet = [0; 8];
+    packet[0..4].copy_from_slice(&left_buffer);
+    packet[4..8].copy_from_slice(&right_buffer);
+    i2c.write(0x42, &packet).await.unwrap();
+}
+
+async fn read_accelerometer(
+    i2c: &mut I2c<'static, I2C0, Async>
+) -> [f32; 3] {
+    const G_PER_LSB: f32 = 0.049;
+    const GRAV: f32 = 9.80665;
+    let mut data_in = [0u8; 6];
+    let register = [0x32u8];
+    i2c.write_read(0x53, &register, &mut data_in).await.unwrap();
+    let mut axes = [0., 0., 0.];
+    for i in 0..3 {
+        let value = i16::from_le_bytes(data_in[(2 * i)..(2 * i + 2)].try_into().expect("This is always 2 bytes so the conversion never fails."));
+        axes[i] = value as f32 * G_PER_LSB * GRAV;
+    }
+    axes
 }
