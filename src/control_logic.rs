@@ -140,7 +140,7 @@ async fn motor_control(
             if right_edge {
                 trim += 1.;
             }
-            let desired_angle = math::atan2(y, x) + math::deg2rad(90.);
+            let desired_angle = math::atan2(y, x);// + math::deg2rad(90.);
             let mut power = math::sqrt(x * x + y * y);
             if power < 0.2 {
                 power = 0.;
