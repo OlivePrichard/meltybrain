@@ -42,16 +42,15 @@ async fn motor_control(
     let dt = Duration::from_hz(3200);
     let mut ticker = Ticker::every(dt);
 
-    let mut k_spin_velocity = 2.; // needs to be above 22% as of 4:44 pm, Friday 22 Nov 2024, the night before comp
-    // this is probably some sort of esc issue but if it's lower than 22% the left motor doesn't turn
-    let mut k_move_velocity = 2.;
+    let mut robot_omega_sp = 20.;
+    let mut robot_v_sp = 15.;
     const TANK_FORWARD: f32 = 60.;
     const TANK_ROTATE: f32 = 15.;
-    let mut accelerometer_radius: f32 = 10e-3; // 10 mm
-    const IR_SENSOR_POSITION: f32 = math::deg2rad(45.);
+    // let mut accelerometer_radius: f32 = 10e-3; // 10 mm
+    const IR_SENSOR_POSITION: f32 = math::deg2rad(-45.);
     const IR_BEACON_POSITION: f32 = math::deg2rad(-90.);
 
-    let rate_command: [u8; 2] = [0x2C, 0x0D];
+    // let rate_command: [u8; 2] = [0x2C, 0x0D];
     // let res = i2c.write(0x53, &rate_command).await;
     // if let Err(e) = res {
     //     println!("A {:?}", e);
@@ -59,8 +58,11 @@ async fn motor_control(
 
     let mut previous_time = Instant::now();
 
-    let mut robot_theta: f32 = 0.;
-    let mut robot_omega: f32 = 0.; // this is raw estimated without any sort of beacon correction
+    let mut robot_inverted = false;
+    let mut direction_reversed = false;
+
+    let mut integrated_robot_theta: f32 = 0.;
+    let mut feedforward_robot_omega: f32 = 0.; // this is raw estimated without any sort of beacon correction
     let mut loop_counter = 0;
     let mut beacon_offset: f32 = 0.;
     let mut previous_ir_reading = false;
@@ -74,56 +76,53 @@ async fn motor_control(
     loop {
         ticker.next().await;
 
-        // stop if watchdog has timed out or isn't yet armed
-        if !*armed.lock().await {
-            let res = motor_command(&mut i2c, 0., 0., 0.).await;
-            if let Err(e) = res {
-                // println!("B {:?}", e);
-            }
-            // left_motor.set_duty(50).unwrap();
-            // right_motor.set_duty(50).unwrap();
-            continue;
-        }
-
-        let (primary_controller, _secondary_controller) = { *controllers.lock().await };
+        let (primary_controller, _secondary_controller) = if *armed.lock().await {
+            *controllers.lock().await
+        } else {
+            (ControllerState::default(), ControllerState::default())
+        };
 
         // allow us to change speeds based on button inputs
         if primary_controller.get(Button::Down) {
-            k_spin_velocity = 20.;
-            k_move_velocity = 15.;
+            robot_omega_sp = 20.;
+            robot_v_sp = 15.;
         } else if primary_controller.get(Button::Right) {
-            k_spin_velocity = 60.;
-            k_move_velocity = 15.;
+            robot_omega_sp = 60.;
+            robot_v_sp = 15.;
         } else if primary_controller.get(Button::Up) {
-            k_spin_velocity = 70.;
-            k_move_velocity = 5.;
+            robot_omega_sp = 70.;
+            robot_v_sp = 5.;
         } else if primary_controller.get(Button::Left) {
-            k_spin_velocity = 50.;
-            k_move_velocity = 25.;
+            robot_omega_sp = 50.;
+            robot_v_sp = 25.;
         }
 
-        let mut left_power = 0.;
-        let mut right_power = 0.;
+        let mut left_motor_sp = 0.;
+        let mut right_motor_sp = 0.;
 
-        // spin if trigger is more than 1/8 pressed down
-        if primary_controller.left_trigger >= 32 {
-            left_power -= k_spin_velocity;
-            right_power += k_spin_velocity;
-        }
 
         let now = Instant::now();
         let dt = (now - previous_instant).as_micros() as f32 * 1e-6;
         previous_instant = now;
-        robot_theta += dt * robot_omega;
-        robot_theta = math::wrap_angle(robot_theta);
-        led_update(&led, robot_theta + beacon_offset).await;
+        integrated_robot_theta += dt * feedforward_robot_omega;
+        integrated_robot_theta = math::wrap_angle(integrated_robot_theta);
+
+        // spin if trigger is more than 1/8 pressed down
+        if primary_controller.left_trigger >= 32 {
+            left_motor_sp -= robot_omega_sp;
+            right_motor_sp += robot_omega_sp;
+        
+            led_update(&led, integrated_robot_theta + beacon_offset, robot_inverted).await;
+        } else {
+            _ = led.set_duty(50u8);
+        }
 
         // if loop_counter % 4 == 0 {
         //     // accelerometer shit
         // }
 
         if loop_counter % 2 == 0 {
-            let actual_theta = robot_theta + beacon_offset;
+            let actual_theta = integrated_robot_theta + beacon_offset;
             let mut x = primary_controller.left_stick.get_x();
             let mut y = primary_controller.left_stick.get_y();
             let right_x = primary_controller.right_stick.get_x();
@@ -148,16 +147,16 @@ async fn motor_control(
                 y = 0.;
             }
             let (left, right) =
-                calculate_motor_command(actual_theta, desired_angle, k_move_velocity * power);
+                calculate_motor_command(actual_theta, desired_angle, robot_v_sp * power);
             if tank_mode {
-                left_power = TANK_FORWARD * y + TANK_ROTATE * right_x;
-                right_power = TANK_FORWARD * y - TANK_ROTATE * right_x;
+                left_motor_sp = TANK_FORWARD * y + TANK_ROTATE * right_x;
+                right_motor_sp = TANK_FORWARD * y - TANK_ROTATE * right_x;
             }
-            left_power += left;
-            right_power += right;
-            let res = motor_command(&mut i2c, left_power, right_power, trim).await;
+            left_motor_sp += left;
+            right_motor_sp += right;
+            let res = motor_command(&mut i2c, left_motor_sp, right_motor_sp, trim).await;
             if let Ok(angular_velocity_from_motors) = res {
-                robot_omega = angular_velocity_from_motors;
+                feedforward_robot_omega = angular_velocity_from_motors;
             } 
         }
 
@@ -168,7 +167,7 @@ async fn motor_control(
             previous_ir_reading = signal;
             if rising_edge {
                 let current_position_est = IR_BEACON_POSITION - IR_SENSOR_POSITION;
-                beacon_offset = current_position_est - robot_theta;
+                beacon_offset = current_position_est - integrated_robot_theta;
             }
         }
 
@@ -176,16 +175,16 @@ async fn motor_control(
     }
 }
 
-async fn led_update(led: &Channel<'static, LowSpeed, GpioPin<10>>, position: f32) {
-    const LED_ROBOT_POSITION: f32 = math::deg2rad(35.);
+async fn led_update(led: &Channel<'static, LowSpeed, GpioPin<10>>, position: f32, inverted: bool) {
+    const LED_ROBOT_POSITION: f32 = math::deg2rad(-35.);
     const LED_ON_POSITION: f32 = math::deg2rad(-90.); // led turns on when at the 6:00 position
     const LED_WINDOW: f32 = math::deg2rad(10.);
-    let led_position = math::wrap_angle(position + LED_ROBOT_POSITION);
-    let led_distance = math::wrap_angle(led_position - LED_ON_POSITION);
-    if math::abs(led_distance) < LED_WINDOW {
-        led.set_duty(100u8);
+    let led_position = math::wrap_angle(if inverted { position - LED_ROBOT_POSITION } else { position + LED_ROBOT_POSITION });
+    let led_err = math::wrap_angle(led_position - LED_ON_POSITION);
+    _ = if math::abs(led_err) < LED_WINDOW {
+        led.set_duty(100u8)
     } else {
-        led.set_duty(0u8);
+        led.set_duty(0u8)
     }
 }
 
@@ -217,18 +216,18 @@ async fn motor_command(
     Ok(wheelSpeedtoAngularVelocity(left_vel, right_vel, trim))
 }
 
-async fn read_accelerometer(
-    i2c: &mut I2c<'static, I2C0, Blocking>
-) -> Result<[f32; 3], Error> {
-    const G_PER_LSB: f32 = 0.049;
-    const GRAV: f32 = 9.80665;
-    let mut data_in = [0u8; 6];
-    let register = [0x32u8];
-    i2c.write_read(0x53, &register, &mut data_in)?;
-    let mut axes = [0., 0., 0.];
-    for i in 0..3 {
-        let value = i16::from_le_bytes(data_in[(2 * i)..(2 * i + 2)].try_into().expect("This is always 2 bytes so the conversion never fails."));
-        axes[i] = value as f32 * G_PER_LSB * GRAV;
-    }
-    Ok(axes)
-}
+// async fn read_accelerometer(
+//     i2c: &mut I2c<'static, I2C0, Blocking>
+// ) -> Result<[f32; 3], Error> {
+//     const G_PER_LSB: f32 = 0.049;
+//     const GRAV: f32 = 9.80665;
+//     let mut data_in = [0u8; 6];
+//     let register = [0x32u8];
+//     i2c.write_read(0x53, &register, &mut data_in)?;
+//     let mut axes = [0., 0., 0.];
+//     for i in 0..3 {
+//         let value = i16::from_le_bytes(data_in[(2 * i)..(2 * i + 2)].try_into().expect("This is always 2 bytes so the conversion never fails."));
+//         axes[i] = value as f32 * G_PER_LSB * GRAV;
+//     }
+//     Ok(axes)
+// }
