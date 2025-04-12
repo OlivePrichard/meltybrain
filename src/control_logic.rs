@@ -1,4 +1,4 @@
-use core::f32::consts::{PI, TAU};
+use core::f32::consts::{E, PI, TAU};
 
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
@@ -63,13 +63,17 @@ async fn motor_control(
 
     let mut integrated_robot_theta: f32 = 0.;
     let mut feedforward_robot_omega: f32 = 0.; // this is raw estimated without any sort of beacon correction
+    let mut velocity_estimation_gain: f32 = 1.14; // tunable
     let mut loop_counter = 0;
-    let mut beacon_offset: f32 = 0.;
+    let mut beacon_offset_angle: f32 = 0.;
+    let mut beacon_offset_adjust: f32 = 0.;
+    let beacon_offset_adjust_speed: f32 = 0.25;
     let mut previous_ir_reading = false;
 
     let mut previous_left = false;
     let mut previous_right = false;
-    let mut trim = 0.;
+    let mut previous_east = false;
+    let mut previous_south = false;
 
     let mut previous_instant = Instant::now();
 
@@ -90,11 +94,44 @@ async fn motor_control(
             robot_omega_sp = 60.;
             robot_v_sp = 15.;
         } else if primary_controller.get(Button::Up) {
-            robot_omega_sp = 70.;
-            robot_v_sp = 5.;
+            robot_omega_sp = 65.;
+            robot_v_sp = 10.;
         } else if primary_controller.get(Button::Left) {
             robot_omega_sp = 50.;
             robot_v_sp = 25.;
+        }
+
+        if direction_reversed ^ robot_inverted {
+            robot_omega_sp = -robot_omega_sp;
+        }
+
+        let mut x = primary_controller.left_stick.get_x();
+        let mut y = primary_controller.left_stick.get_y();
+        let right_x = primary_controller.right_stick.get_x();
+        let left = primary_controller.get(Button::LeftBumper);
+        let right = primary_controller.get(Button::RightBumper);
+        let tank_mode = primary_controller.right_trigger >= 32;
+        let left_edge = left && !previous_left;
+        previous_left = left;
+        let right_edge = right && !previous_right;
+        previous_right = right;
+        if left_edge {
+            velocity_estimation_gain -= 0.01;
+        }
+        if right_edge {
+            velocity_estimation_gain += 0.1;
+        }
+        let east = primary_controller.get(Button::Circle);
+        let south = primary_controller.get(Button::Cross);
+        let east_edge = east && !previous_east;
+        let south_edge = south && !previous_south;
+        previous_east = east;
+        previous_south = south;
+        if east_edge {
+            direction_reversed = !direction_reversed;
+        }
+        if south_edge {
+            robot_inverted = !robot_inverted;
         }
 
         let mut left_motor_sp = 0.;
@@ -107,12 +144,20 @@ async fn motor_control(
         integrated_robot_theta += dt * feedforward_robot_omega;
         integrated_robot_theta = math::wrap_angle(integrated_robot_theta);
 
+        let offset_angle_acc = if dt * feedforward_robot_omega * beacon_offset_adjust_speed <= beacon_offset_adjust {
+            dt * feedforward_robot_omega * beacon_offset_adjust_speed
+        } else {
+            beacon_offset_adjust
+        };
+        beacon_offset_adjust -= offset_angle_acc;
+        beacon_offset_angle += offset_angle_acc;
+
         // spin if trigger is more than 1/8 pressed down
         if primary_controller.left_trigger >= 32 {
             left_motor_sp -= robot_omega_sp;
             right_motor_sp += robot_omega_sp;
         
-            led_update(&led, integrated_robot_theta + beacon_offset, robot_inverted).await;
+            led_update(&led, integrated_robot_theta + beacon_offset_angle, robot_inverted).await;
         } else {
             _ = led.set_duty(50u8);
         }
@@ -122,42 +167,32 @@ async fn motor_control(
         // }
 
         if loop_counter % 2 == 0 {
-            let actual_theta = integrated_robot_theta + beacon_offset;
-            let mut x = primary_controller.left_stick.get_x();
-            let mut y = primary_controller.left_stick.get_y();
-            let right_x = primary_controller.right_stick.get_x();
-            let left = primary_controller.get(Button::LeftBumper);
-            let right = primary_controller.get(Button::RightBumper);
-            let tank_mode = primary_controller.right_trigger >= 32;
-            let left_edge = left && !previous_left;
-            previous_left = left;
-            let right_edge = right && !previous_right;
-            previous_right = right;
-            if left_edge {
-                trim -= 1.;
-            }
-            if right_edge {
-                trim += 1.;
-            }
-            let desired_angle = math::atan2(y, x);// + math::deg2rad(90.);
+            let actual_theta = integrated_robot_theta + beacon_offset_angle;
+            let desired_angle = math::atan2(y, x);
             let mut power = math::sqrt(x * x + y * y);
             if power < 0.2 {
                 power = 0.;
                 x = 0.;
                 y = 0.;
             }
-            let (left, right) =
-                calculate_motor_command(actual_theta, desired_angle, robot_v_sp * power);
+
             if tank_mode {
                 left_motor_sp = TANK_FORWARD * y + TANK_ROTATE * right_x;
                 right_motor_sp = TANK_FORWARD * y - TANK_ROTATE * right_x;
             }
-            left_motor_sp += left;
-            right_motor_sp += right;
-            let res = motor_command(&mut i2c, left_motor_sp, right_motor_sp, trim).await;
+            else {
+                let (left, right) =
+                    calculate_motor_command(actual_theta, desired_angle, robot_v_sp * power);
+                left_motor_sp += left;
+                right_motor_sp += right;
+            }
+            if robot_inverted {
+                (left_motor_sp, right_motor_sp) = (-right_motor_sp, -left_motor_sp);
+            }
+            let res = motor_command(&mut i2c, left_motor_sp, right_motor_sp, velocity_estimation_gain).await;
             if let Ok(angular_velocity_from_motors) = res {
                 feedforward_robot_omega = angular_velocity_from_motors;
-            } 
+            }
         }
 
         let ir_reading = ir_sensor.read().await;
@@ -166,8 +201,13 @@ async fn motor_control(
             let rising_edge = signal && !previous_ir_reading;
             previous_ir_reading = signal;
             if rising_edge {
-                let current_position_est = IR_BEACON_POSITION - IR_SENSOR_POSITION;
-                beacon_offset = current_position_est - integrated_robot_theta;
+                let current_position_est = if robot_inverted {
+                    IR_BEACON_POSITION + IR_SENSOR_POSITION
+                } else {
+                    IR_BEACON_POSITION - IR_SENSOR_POSITION
+                };
+                let offset_angle_est = current_position_est - integrated_robot_theta;
+                beacon_offset_adjust = offset_angle_est - beacon_offset_angle;
             }
         }
 
@@ -191,29 +231,24 @@ async fn led_update(led: &Channel<'static, LowSpeed, GpioPin<10>>, position: f32
 fn calculate_motor_command(angle: f32, heading_direction: f32, target_speed: f32) -> (f32, f32) {
     const MOVEMENT_ZONE_WIDTH: f32 = math::deg2rad(20.);
     let error = math::wrap_angle(angle - heading_direction);
-    if math::abs(error) < MOVEMENT_ZONE_WIDTH {
-        (target_speed, target_speed)
-    } else if math::abs(math::wrap_angle(error + math::deg2rad(180.))) < MOVEMENT_ZONE_WIDTH {
-        (-target_speed, -target_speed)
-    } else {
-        (0., 0.)
-    }
+    let forward = math::cos(error);
+    (forward, forward)
 }
 
 async fn motor_command(
     i2c: &mut I2c<'static, I2C0, Blocking>,
     left_vel: f32,
     right_vel: f32,
-    trim: f32,
+    gain: f32,
 ) -> Result<f32, Error> {
     // println!("Motor command: {}, {}", left_vel, right_vel);
-    let left_buffer = (-left_vel).to_bits().to_le_bytes();
-    let right_buffer = right_vel.to_bits().to_le_bytes();
+    let left_buffer = left_vel.to_bits().to_le_bytes();
+    let right_buffer = (-right_vel).to_bits().to_le_bytes();
     let mut packet = [0; 8];
     packet[0..4].copy_from_slice(&left_buffer);
     packet[4..8].copy_from_slice(&right_buffer);
     i2c.write(0x42, &packet)?;
-    Ok(wheelSpeedtoAngularVelocity(left_vel, right_vel, trim))
+    Ok((right_vel - left_vel) * gain)
 }
 
 // async fn read_accelerometer(
