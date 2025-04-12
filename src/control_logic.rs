@@ -70,6 +70,10 @@ async fn motor_control(
     let mut trim = 0.;
 
     let mut previous_instant = Instant::now();
+    
+    // Add variable to track invertibility state
+    let mut inverted = false;
+    let mut previous_triangle = false;
 
     loop {
         ticker.next().await;
@@ -86,6 +90,13 @@ async fn motor_control(
         }
 
         let (primary_controller, _secondary_controller) = { *controllers.lock().await };
+
+        // Handle invertibility toggle with Triangle button
+        let triangle_pressed = primary_controller.get(Button::Triangle);
+        if triangle_pressed && !previous_triangle {
+            inverted = !inverted;
+        }
+        previous_triangle = triangle_pressed;
 
         // allow us to change speeds based on button inputs
         if primary_controller.get(Button::Down) {
@@ -106,15 +117,24 @@ async fn motor_control(
         let mut right_power = 0.;
 
         // spin if trigger is more than 1/8 pressed down
+        // Invert spin direction if the robot is inverted
         if primary_controller.left_trigger >= 32 {
-            left_power -= k_spin_velocity;
-            right_power += k_spin_velocity;
+            if !inverted {
+                left_power -= k_spin_velocity;
+                right_power += k_spin_velocity;
+            } else {
+                left_power += k_spin_velocity;
+                right_power -= k_spin_velocity;
+            }
         }
 
         let now = Instant::now();
         let dt = (now - previous_instant).as_micros() as f32 * 1e-6;
         previous_instant = now;
+        
+    
         robot_theta += dt * robot_omega;
+    
         robot_theta = math::wrap_angle(robot_theta);
         led_update(&led, robot_theta + beacon_offset).await;
 
@@ -126,6 +146,12 @@ async fn motor_control(
             let actual_theta = robot_theta + beacon_offset;
             let mut x = primary_controller.left_stick.get_x();
             let mut y = primary_controller.left_stick.get_y();
+            
+            // Invert Y axis when robot is flipped
+            if inverted {
+                y = -y;
+            }
+            
             let right_x = primary_controller.right_stick.get_x();
             let left = primary_controller.get(Button::LeftBumper);
             let right = primary_controller.get(Button::RightBumper);
@@ -147,17 +173,35 @@ async fn motor_control(
                 x = 0.;
                 y = 0.;
             }
-            let (left, right) =
+            
+            let (mut left, mut right) =
                 calculate_motor_command(actual_theta, desired_angle, k_move_velocity * power);
+                
+            // In tank mode, invert forward/backward if the robot is inverted
             if tank_mode {
-                left_power = TANK_FORWARD * y + TANK_ROTATE * right_x;
-                right_power = TANK_FORWARD * y - TANK_ROTATE * right_x;
+                if !inverted {
+                    left_power = TANK_FORWARD * y + TANK_ROTATE * right_x;
+                    right_power = TANK_FORWARD * y - TANK_ROTATE * right_x;
+                } else {
+                    // Invert the direction in tank mode when robot is inverted
+                    left_power = -TANK_FORWARD * y - TANK_ROTATE * right_x;
+                    right_power = -TANK_FORWARD * y + TANK_ROTATE * right_x;
+                }
             }
+            
             left_power += left;
             right_power += right;
+            
+    
+            
             let res = motor_command(&mut i2c, left_power, right_power, trim).await;
             if let Ok(angular_velocity_from_motors) = res {
-                robot_omega = angular_velocity_from_motors;
+                // The sign of angular velocity needs to be consistent with our direction expectations
+                robot_omega = if inverted {
+                    -angular_velocity_from_motors
+                } else {
+                    angular_velocity_from_motors
+                };
             } 
         }
 
