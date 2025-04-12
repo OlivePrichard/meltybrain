@@ -46,7 +46,7 @@ async fn motor_control(
     // this is probably some sort of esc issue but if it's lower than 22% the left motor doesn't turn
     let mut k_move_velocity = 2.;
     const TANK_FORWARD: f32 = 60.;
-    const TANK_ROTATE: f32 = 15.;
+    const TANK_ROTATE: f32 = 5.;
     let mut accelerometer_radius: f32 = 10e-3; // 10 mm
     const IR_SENSOR_POSITION: f32 = math::deg2rad(45.);
     const IR_BEACON_POSITION: f32 = math::deg2rad(-90.);
@@ -100,17 +100,17 @@ async fn motor_control(
 
         // allow us to change speeds based on button inputs
         if primary_controller.get(Button::Down) {
-            k_spin_velocity = 20.;
-            k_move_velocity = 15.;
+            k_spin_velocity = 40.;
+            k_move_velocity = 40.;
         } else if primary_controller.get(Button::Right) {
             k_spin_velocity = 60.;
-            k_move_velocity = 15.;
+            k_move_velocity = 20.;
         } else if primary_controller.get(Button::Up) {
             k_spin_velocity = 70.;
-            k_move_velocity = 5.;
+            k_move_velocity = 10.;
         } else if primary_controller.get(Button::Left) {
             k_spin_velocity = 50.;
-            k_move_velocity = 25.;
+            k_move_velocity = 30.;
         }
 
         let mut left_power = 0.;
